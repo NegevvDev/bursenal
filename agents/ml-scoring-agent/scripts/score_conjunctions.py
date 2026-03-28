@@ -39,9 +39,9 @@ FEATURE_LABELS = {
 }
 
 ML_TIER_THRESHOLDS = [
-    ('RED',    0.50),
-    ('ORANGE', 0.10),
-    ('YELLOW', 0.001),
+    ('RED',    0.80),
+    ('ORANGE', 0.50),
+    ('YELLOW', 0.10),
     ('GREEN',  0.0),
 ]
 
@@ -137,7 +137,9 @@ def main():
         X = scaler.transform(X)
 
     t_start = time.time()
-    rf_proba = rf_model.predict_proba(X)[:, 1]
+    rf_proba_all = rf_model.predict_proba(X)
+    # P(class=2) = P(RED/ORANGE) — daha keskin sinif ayirimi icin
+    rf_proba = rf_proba_all[:, -1] if rf_proba_all.shape[1] > 2 else rf_proba_all[:, 1]
 
     # LSTM (optional)
     lstm_used   = False
@@ -171,9 +173,16 @@ def main():
     try:
         import shap
         explainer  = shap.TreeExplainer(rf_model.base_estimator if hasattr(rf_model, 'base_estimator') else rf_model)
-        shap_values = explainer.shap_values(X)
-        if isinstance(shap_values, list):
-            shap_values = shap_values[1]   # class 1 (high risk)
+        sv = explainer.shap_values(X)
+        sv_arr = np.array(sv) if isinstance(sv, list) else sv
+        # Normalize to (N, F): mean abs across classes
+        if sv_arr.ndim == 3:
+            if sv_arr.shape[0] == len(X):   # (N, F, n_classes)
+                shap_values = np.abs(sv_arr).mean(axis=2)
+            else:                            # (n_classes, N, F)
+                shap_values = np.abs(sv_arr).mean(axis=0)
+        else:
+            shap_values = np.abs(sv_arr)
         shap_available = True
     except Exception as e:
         print(f"[WARN] SHAP computation failed: {e}")
@@ -191,9 +200,13 @@ def main():
         ml_tier      = ml_score_to_tier(ml_score)
         analytic_tier = row.get('severity_tier', 'GREEN')
 
-        # Tier override when ML and analytic differ by ≥ 1 level
-        tier_override = abs(ANALYTIC_TIER_ORDER.get(ml_tier, 0) - ANALYTIC_TIER_ORDER.get(analytic_tier, 0)) >= 1
-        final_tier    = ml_tier
+        # Final tier = ML ile analitik tier'in KÖTÜSÜ (yüksek risk olanı)
+        _order = ['GREEN', 'YELLOW', 'ORANGE', 'RED']
+        final_tier = _order[max(
+            _order.index(ml_tier) if ml_tier in _order else 0,
+            _order.index(analytic_tier) if analytic_tier in _order else 0
+        )]
+        tier_override = final_tier != analytic_tier
         if tier_override:
             tier_overrides += 1
 
@@ -203,7 +216,7 @@ def main():
         top_shap = []
         if shap_available:
             abs_shap = np.abs(shap_values[idx])
-            top_idxs = np.argsort(abs_shap)[::-1][:3]
+            top_idxs = [int(x) for x in np.argsort(abs_shap)[::-1][:3]]
             for fi in top_idxs:
                 fname = FEATURE_COLS[fi]
                 label = FEATURE_LABELS.get(fname, fname.replace('_', ' '))
