@@ -183,17 +183,8 @@ def main():
         'delta_inclination_deg', 'delta_sma_km', 'orbital_similarity_score',
     ]
 
-    if os.path.exists(scaler_path):
-        try:
-            import joblib
-            scaler = joblib.load(scaler_path)
-            df[feature_cols] = scaler.transform(df[feature_cols])
-            df['normalized'] = True
-            print("[Features] StandardScaler applied")
-        except Exception as e:
-            print(f"[WARN] Scaler load failed ({e}) — writing un-normalized features")
-    else:
-        print("[Features] No scaler found — writing un-normalized features")
+    df['normalized'] = False
+    print("[Features] Writing un-normalized features (scaler applied at inference time)")
 
     # Fill any NaN values with column median
     df[feature_cols] = df[feature_cols].fillna(df[feature_cols].median())
