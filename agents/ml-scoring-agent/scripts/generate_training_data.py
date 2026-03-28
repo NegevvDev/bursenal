@@ -74,7 +74,7 @@ BOUNDED_COLS = ['primary_eccentricity', 'secondary_eccentricity',
 synthetic = []
 for _ in range(N_SYNTHETIC):
     base   = real_arr[np.random.randint(len(real_arr))]
-    noise  = np.random.normal(0, std * 0.3)
+    noise  = np.random.normal(0, std * 0.4)
     sample = base + noise
 
     feat = {}

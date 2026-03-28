@@ -38,7 +38,7 @@ synth_idx = np.where(sources != 'real')[0]
 
 np.random.seed(42)
 np.random.shuffle(real_idx)
-n_test    = max(int(len(real_idx) * 0.2), 10)
+n_test    = max(int(len(real_idx) * 0.3), 10)
 test_idx  = real_idx[:n_test]
 train_real_idx = real_idx[n_test:]
 
@@ -58,8 +58,8 @@ X_test_s  = scaler.transform(X_test)
 print("\n[RF] Egitiliyor...")
 rf = RandomForestClassifier(
     n_estimators=200,
-    max_depth=7,
-    min_samples_leaf=5,
+    max_depth=6,
+    min_samples_leaf=8,
     max_features='sqrt',
     class_weight='balanced',
     random_state=42,
