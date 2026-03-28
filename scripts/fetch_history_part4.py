@@ -8,11 +8,7 @@ USER = "mericardavaran@gmail.com"
 PASS = "mericardavaran1"
 PART = 4
 
-with open('/content/bursenal/agents/tle-ingestion-agent/outputs/2026-03-28_1030_tle-catalog.json') as f:
-    catalog = json.load(f)
-
-all_ids = [obj['norad_id'] for obj in catalog['catalog']]
-my_ids = [n for n in all_ids if n > 61977 or n == 40985]
+my_ids = list(range(61978, 89495))
 print(f"[Part {PART}] {len(my_ids)} obje cekilecek")
 
 session = requests.Session()
