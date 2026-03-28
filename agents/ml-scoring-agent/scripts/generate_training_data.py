@@ -94,7 +94,7 @@ for _ in range(N_SYNTHETIC):
     miss = feat['miss_distance_km']
     vel  = feat['relative_velocity_km_s']
     lpc  = feat['log10_pc_analytic']
-    if (miss < 1.0 and vel >= 1.0) or lpc > -3:
+    if miss < 3.0 or lpc > -4:
         label = 2
     elif miss < 8.0 or lpc > -6:
         label = 1
@@ -160,7 +160,7 @@ for sat_name, sat_evs in sat_real.items():
             miss = noise_ev['miss_distance_km']
             vel2 = noise_ev['relative_velocity_km_s']
             lpc  = noise_ev['log10_pc_analytic']
-            noise_ev['label']  = 2 if ((miss < 1.0 and vel2 >= 1.0) or lpc > -3) else (1 if (miss < 8.0 or lpc > -6) else 0)
+            noise_ev['label']  = 2 if (miss < 3.0 or lpc > -4) else (1 if (miss < 8.0 or lpc > -6) else 0)
             noise_ev['source'] = 'lstm_augmented'
             extended.append(noise_ev)
 
