@@ -1,0 +1,53 @@
+# ── Credentials ─────────────────────────────────────────────────────────────
+agents/tle-ingestion-agent/data/imports/credentials.env
+
+# ── Runtime outputs (büyük/geçici dosyalar) ──────────────────────────────────
+agents/*/outputs/*.json
+agents/*/outputs/*.npz
+agents/*/outputs/*.md
+agents/*/outputs/*.parquet
+
+# ── ML model artifacts ───────────────────────────────────────────────────────
+agents/ml-scoring-agent/data/models/*.pkl
+agents/ml-scoring-agent/data/models/*.h5
+agents/ml-scoring-agent/data/models/*.json
+agents/ml-scoring-agent/data/models/archive/
+
+# ── Training data (büyük dosyalar) ───────────────────────────────────────────
+agents/ml-scoring-agent/data/imports/training-data/*.parquet
+agents/ml-scoring-agent/data/imports/training-data/*.npz
+
+# ── CDM dosyaları (runtime) ──────────────────────────────────────────────────
+agents/conjunction-analysis-agent/data/imports/cdm/
+
+# ── Alert log (runtime) ──────────────────────────────────────────────────────
+agents/alert-reporting-agent/data/alert-log.json
+
+# ── Journal entries (runtime) ────────────────────────────────────────────────
+journal/entries/*.md
+
+# ── Python ───────────────────────────────────────────────────────────────────
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+
+# ── Jupyter ──────────────────────────────────────────────────────────────────
+.ipynb_checkpoints/
+*.ipynb
+
+# ── OS ───────────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+
+# ── Editör ───────────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+
+# ── Claude Code (local) ──────────────────────────────────────────────────────
+.claude/
