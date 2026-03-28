@@ -33,12 +33,12 @@ for i, nid in enumerate(my_ids):
 
     if i % 100 == 0:
         print(f"[{i}/{len(my_ids)}] {nid} islendi")
-        with open(f'/content/gp_history_part{PART}.json', 'w') as f:
+        with open(f'gp_history_part{PART}.json', 'w') as f:
             json.dump(results, f)
 
     time.sleep(1)
 
-with open(f'/content/gp_history_part{PART}.json', 'w') as f:
+with open(f'gp_history_part{PART}.json', 'w') as f:
     json.dump(results, f)
 
 print(f"[DONE] Part {PART} tamamlandi — {len(results)} obje")
