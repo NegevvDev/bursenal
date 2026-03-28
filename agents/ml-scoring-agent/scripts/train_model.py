@@ -6,7 +6,7 @@ Cikti: agents/ml-scoring-agent/data/models/
 import json, os, glob
 import numpy as np
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import train_test_split, StratifiedShuffleSplit
 from sklearn.metrics import classification_report, roc_auc_score
 from sklearn.preprocessing import StandardScaler
 import joblib
@@ -32,22 +32,15 @@ sources = np.array([row['source'] for row in data])
 print(f"[Data] {len(X)} kayit | {len(feature_keys)} ozellik")
 print(f"[Data] Label 0: {sum(y==0)} | Label 1: {sum(y==1)} | Label 2: {sum(y==2)}")
 
-# ── Test seti: sadece gercek event'ler (%20) ─────────────────────────────────
-real_idx  = np.where(sources == 'real')[0]
-synth_idx = np.where(sources != 'real')[0]
-
-np.random.seed(42)
-np.random.shuffle(real_idx)
-n_test    = max(int(len(real_idx) * 0.3), 10)
-test_idx  = real_idx[:n_test]
-train_real_idx = real_idx[n_test:]
-
-train_idx = np.concatenate([train_real_idx, synth_idx])
+# ── Stratified split (tum veri, her siniftan temsil) ─────────────────────────
+sss = StratifiedShuffleSplit(n_splits=1, test_size=0.2, random_state=42)
+train_idx, test_idx = next(sss.split(X, y))
 
 X_train, X_test = X[train_idx], X[test_idx]
 y_train, y_test = y[train_idx], y[test_idx]
 
-print(f"[Split] Train: {len(X_train)} | Test (gercek): {len(X_test)}")
+print(f"[Split] Train: {len(X_train)} | Test: {len(X_test)}")
+print(f"[Split] Test  Label 0: {sum(y_test==0)} | Label 1: {sum(y_test==1)} | Label 2: {sum(y_test==2)}")
 
 # ── Normalize ────────────────────────────────────────────────────────────────
 scaler    = StandardScaler()
