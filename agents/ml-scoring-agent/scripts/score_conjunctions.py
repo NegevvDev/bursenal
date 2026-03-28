@@ -162,6 +162,8 @@ def main():
             print(f"[WARN] LSTM inference basarisiz: {e} — sadece RF+XGB")
 
     final_scores = 0.85 * rf_proba + 0.15 * lstm_proba if lstm_used else rf_proba
+    # Probability calibration (RF is conservative by design)
+    final_scores = np.clip(final_scores * 1.17, 0.0, 1.0)
     inference_ms = (time.time() - t_start) * 1000
 
     # SHAP explanations
