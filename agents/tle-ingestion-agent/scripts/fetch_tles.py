@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 TLE Fetch Script — tle-ingestion-agent
-Fetches Two-Line Element sets from CelesTrak and Space-Track.org.
+Fetches Two-Line Element sets from Space-Track.org.
 Outputs: agents/tle-ingestion-agent/outputs/YYYY-MM-DD_HHMM_tle-catalog.json
 
 Dependencies: pip install requests
@@ -10,8 +10,7 @@ import requests
 import json
 import os
 import math
-import hashlib
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 # ── Turkish satellite NORAD IDs ──────────────────────────────────────────────
 TURKISH_SATELLITES = {
@@ -23,15 +22,6 @@ TURKISH_SATELLITES = {
     "GOKTURK_2":  38704,
     "RASAT":      37791,
     "IMECE":      55491,
-}
-
-# ── CelesTrak catalog URLs ───────────────────────────────────────────────────
-CELESTRAK_URLS = {
-    "active":         "https://celestrak.org/pub/TLE/active.txt",
-    "geo_belt":       "https://celestrak.org/pub/TLE/geo.txt",
-    "fengyun_debris": "https://celestrak.org/pub/TLE/1999-025.txt",
-    "cosmos_debris":  "https://celestrak.org/pub/TLE/cosmos-2251-debris.txt",
-    "iridium_debris": "https://celestrak.org/pub/TLE/iridium-33-debris.txt",
 }
 
 # ── Space-Track altitude bands (km) ─────────────────────────────────────────
@@ -65,13 +55,11 @@ def parse_tle_text(text: str) -> list[tuple[str, str, str]]:
     i = 0
     while i < len(lines):
         l = lines[i]
-        # 3-line: name line, then lines starting with "1 " and "2 "
         if not l.startswith('1 ') and not l.startswith('2 '):
             if i + 2 < len(lines) and lines[i+1].startswith('1 ') and lines[i+2].startswith('2 '):
                 tles.append((l, lines[i+1], lines[i+2]))
                 i += 3
                 continue
-        # 2-line: direct TLE pair
         if l.startswith('1 ') and i + 1 < len(lines) and lines[i+1].startswith('2 '):
             tles.append(('UNKNOWN', l, lines[i+1]))
             i += 2
@@ -80,21 +68,8 @@ def parse_tle_text(text: str) -> list[tuple[str, str, str]]:
     return tles
 
 
-def fetch_celestrak(url: str, label: str) -> list[tuple[str, str, str]]:
-    """Fetch and parse a CelesTrak TLE catalog."""
-    try:
-        r = requests.get(url, timeout=30)
-        r.raise_for_status()
-        tles = parse_tle_text(r.text)
-        print(f"[CelesTrak/{label}] {len(tles)} objects fetched")
-        return tles
-    except requests.RequestException as e:
-        print(f"[WARN] CelesTrak/{label} failed: {e}")
-        return []
-
-
-def fetch_spacetrack(credentials_path: str, bands: dict) -> list[tuple[str, str, str]]:
-    """Fetch TLEs from Space-Track.org for the given altitude bands."""
+def fetch_spacetrack(credentials_path: str, bands: dict, turkish_norad_ids: list) -> list[tuple[str, str, str]]:
+    """Fetch TLEs from Space-Track.org for altitude bands + Turkish satellites by NORAD ID."""
     if not os.path.exists(credentials_path):
         print("[INFO] credentials.env not found — skipping Space-Track fetch")
         return []
@@ -126,15 +101,16 @@ def fetch_spacetrack(credentials_path: str, bands: dict) -> list[tuple[str, str,
         return []
 
     all_tles = []
+
+    # 1. Altitude band queries
     for band_name, (alt_min, alt_max) in bands.items():
-        # Convert altitude to mean motion (rev/day)
         a_min = (R_EARTH + alt_min) * 1000  # m
         a_max = (R_EARTH + alt_max) * 1000  # m
         n_max = math.sqrt(MU / a_min**3) * 86400 / (2 * math.pi)
         n_min = math.sqrt(MU / a_max**3) * 86400 / (2 * math.pi)
         url = (
             f"https://www.space-track.org/basicspacedata/query/class/gp/"
-            f"MEAN_MOTION/%3E{n_min:.4f}/%3C{n_max:.4f}/"
+            f"MEAN_MOTION/{n_min:.4f}--{n_max:.4f}/"
             f"EPOCH/%3Enow-2/orderby/NORAD_CAT_ID/format/tle"
         )
         try:
@@ -145,6 +121,21 @@ def fetch_spacetrack(credentials_path: str, bands: dict) -> list[tuple[str, str,
             all_tles.extend(tles)
         except requests.RequestException as e:
             print(f"[WARN] SpaceTrack/{band_name} failed: {e}")
+
+    # 2. Direct query for Turkish satellites by NORAD ID
+    norad_str = ','.join(str(n) for n in turkish_norad_ids)
+    url = (
+        f"https://www.space-track.org/basicspacedata/query/class/gp/"
+        f"NORAD_CAT_ID/{norad_str}/orderby/NORAD_CAT_ID/format/tle"
+    )
+    try:
+        r = session.get(url, timeout=30)
+        r.raise_for_status()
+        tles = parse_tle_text(r.text)
+        print(f"[SpaceTrack/Turkish] {len(tles)} objects fetched")
+        all_tles.extend(tles)
+    except requests.RequestException as e:
+        print(f"[WARN] SpaceTrack/Turkish query failed: {e}")
 
     return all_tles
 
@@ -157,8 +148,6 @@ def parse_tle_epoch(line1: str) -> str:
         day_frac = float(line1[20:32])
         day = int(day_frac)
         frac = day_frac - day
-        # Day of year to calendar date
-        from datetime import timedelta
         epoch_dt = datetime(year, 1, 1, tzinfo=timezone.utc) + timedelta(days=day - 1 + frac)
         return epoch_dt.isoformat()
     except (ValueError, IndexError):
@@ -175,10 +164,7 @@ def determine_band(line2: str) -> str:
 
 
 def build_catalog(all_tles: list[tuple[str, str, str]]) -> dict:
-    """
-    Deduplicate by NORAD ID (keep most recent epoch),
-    validate checksums, annotate Turkish satellites.
-    """
+    """Deduplicate by NORAD ID (keep most recent epoch), validate checksums, annotate Turkish satellites."""
     catalog = {}
     rejected = 0
 
@@ -204,7 +190,6 @@ def build_catalog(all_tles: list[tuple[str, str, str]]) -> dict:
                 'orbital_band': determine_band(line2),
             }
 
-    # Annotate Turkish satellites
     turkish_nids = {v: k for k, v in TURKISH_SATELLITES.items()}
     for norad_id, entry in catalog.items():
         if norad_id in turkish_nids:
@@ -221,35 +206,26 @@ def main():
     outputs_dir = os.path.join(agent_dir, 'outputs')
     os.makedirs(outputs_dir, exist_ok=True)
 
-    all_tles = []
-
-    # 1. CelesTrak bulk fetches
-    for label, url in CELESTRAK_URLS.items():
-        all_tles.extend(fetch_celestrak(url, label))
-
-    # 2. Space-Track (optional)
     credentials_path = os.path.join(agent_dir, 'data', 'imports', 'credentials.env')
-    all_tles.extend(fetch_spacetrack(credentials_path, SPACETRACK_BANDS))
+    turkish_norad_ids = list(TURKISH_SATELLITES.values())
 
-    # 3. Build deduplicated catalog
-    catalog = build_catalog(all_tles)
+    all_tles = fetch_spacetrack(credentials_path, SPACETRACK_BANDS, turkish_norad_ids)
+    catalog  = build_catalog(all_tles)
 
-    # 4. Verify Turkish satellite coverage
     missing = [name for name, nid in TURKISH_SATELLITES.items() if nid not in catalog]
     if missing:
         print(f"[WARN] Missing Turkish satellites: {missing}")
 
-    # 5. Write output
     now = datetime.now(timezone.utc)
     ts  = now.strftime('%Y-%m-%d_%H%M')
     output = {
-        'fetch_timestamp_utc':          now.isoformat(),
-        'total_objects':                len(catalog),
-        'turkish_satellites_found':     sum(1 for v in catalog.values() if v.get('is_turkish_satellite')),
-        'missing_turkish_satellites':   missing,
-        'geo_object_count':             sum(1 for v in catalog.values() if v['orbital_band'] == 'GEO'),
-        'leo_object_count':             sum(1 for v in catalog.values() if v['orbital_band'] == 'LEO'),
-        'catalog':                      list(catalog.values()),
+        'fetch_timestamp_utc':        now.isoformat(),
+        'total_objects':              len(catalog),
+        'turkish_satellites_found':   sum(1 for v in catalog.values() if v.get('is_turkish_satellite')),
+        'missing_turkish_satellites': missing,
+        'geo_object_count':           sum(1 for v in catalog.values() if v['orbital_band'] == 'GEO'),
+        'leo_object_count':           sum(1 for v in catalog.values() if v['orbital_band'] == 'LEO'),
+        'catalog':                    list(catalog.values()),
     }
     output_path = os.path.join(outputs_dir, f"{ts}_tle-catalog.json")
     with open(output_path, 'w') as f:
