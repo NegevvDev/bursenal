@@ -39,9 +39,9 @@ FEATURE_LABELS = {
 }
 
 ML_TIER_THRESHOLDS = [
-    ('RED',    0.80),
+    ('RED',    0.55),
     ('ORANGE', 0.50),
-    ('YELLOW', 0.10),
+    ('YELLOW', 0.15),
     ('GREEN',  0.0),
 ]
 
@@ -161,7 +161,7 @@ def main():
         except Exception as e:
             print(f"[WARN] LSTM inference basarisiz: {e} — sadece RF+XGB")
 
-    final_scores = 0.7 * rf_proba + 0.3 * lstm_proba if lstm_used else rf_proba
+    final_scores = 0.85 * rf_proba + 0.15 * lstm_proba if lstm_used else rf_proba
     inference_ms = (time.time() - t_start) * 1000
 
     # SHAP explanations
