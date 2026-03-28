@@ -1,282 +1,259 @@
 #!/usr/bin/env python3
 """
 Score Conjunctions Script — ml-scoring-agent
-RF + XGBoost + LSTM ile 445 conjunction event'ini skorlar.
+Runs ML inference on conjunction feature matrix, produces calibrated risk scores + SHAP explanations.
 Output: outputs/YYYY-MM-DD_HHMM_scored-conjunctions.json
 
-Dependencies: pip install scikit-learn joblib shap numpy xgboost tensorflow
+Dependencies: pip install scikit-learn joblib shap numpy pandas pyarrow tensorflow
 """
-import json, os, math, glob
-import numpy as np
-import joblib
+import json
+import os
+import time
 from datetime import datetime, timezone
 
-SCRIPT_DIR  = os.path.dirname(os.path.abspath(__file__))
-AGENT_DIR   = os.path.dirname(SCRIPT_DIR)
-ROOT_DIR    = os.path.dirname(os.path.dirname(AGENT_DIR))
-MODELS_DIR  = os.path.join(AGENT_DIR, 'data', 'models')
-OUTPUTS_DIR = os.path.join(AGENT_DIR, 'outputs')
-os.makedirs(OUTPUTS_DIR, exist_ok=True)
+import joblib
+import numpy as np
+import pandas as pd
 
-R_EARTH = 6378.137
-MU      = 398600.4418
+FEATURE_COLS = [
+    'miss_distance_km', 'relative_velocity_km_s', 'radial_miss_km',
+    'intrack_miss_km', 'crosstrack_miss_km', 'tca_hours_from_now',
+    'log10_pc_analytic', 'primary_sma_km', 'primary_eccentricity',
+    'primary_inclination_deg', 'primary_raan_deg', 'secondary_sma_km',
+    'secondary_eccentricity', 'secondary_inclination_deg', 'secondary_raan_deg',
+    'object_type_encoded', 'tca_urgency', 'velocity_miss_product',
+    'delta_inclination_deg', 'delta_sma_km', 'orbital_similarity_score',
+]
 
-def latest(pattern):
-    files = glob.glob(pattern)
-    return max(files, key=os.path.getmtime) if files else None
-
-# ── Veri yükle ───────────────────────────────────────────────────────────────
-events_path  = latest(os.path.join(ROOT_DIR, 'agents/conjunction-analysis-agent/outputs/*_conjunction-events.json'))
-catalog_path = latest(os.path.join(ROOT_DIR, 'agents/tle-ingestion-agent/outputs/*_tle-catalog.json'))
-
-print(f"[Load] Events : {os.path.basename(events_path)}")
-print(f"[Load] Catalog: {os.path.basename(catalog_path)}")
-
-with open(events_path)  as f: events_data  = json.load(f)
-with open(catalog_path) as f: catalog_data = json.load(f)
-
-events  = events_data['conjunction_events']
-catalog = {obj['norad_id']: obj for obj in catalog_data['catalog']}
-
-def mean_motion_to_altitude(mm):
-    try:
-        n = mm * 2 * math.pi / 86400
-        return (MU / n**2) ** (1/3) - R_EARTH
-    except:
-        return 500.0
-
-def extract_features(event, catalog):
-    tk_id  = event['turkish_norad_id']
-    deb_id = event['debris_norad_id']
-    tk_obj  = catalog.get(tk_id, {})
-    deb_obj = catalog.get(deb_id, {})
-
-    def tle2(obj, s, e, default=0.0):
-        try:    return float(obj['line2'][s:e])
-        except: return default
-
-    tk_inc  = tle2(tk_obj,  8, 16)
-    tk_ecc  = tle2(tk_obj, 26, 33) * 1e-7
-    tk_mm   = tle2(tk_obj, 52, 63)
-    deb_inc = tle2(deb_obj,  8, 16)
-    deb_ecc = tle2(deb_obj, 26, 33) * 1e-7
-    deb_mm  = tle2(deb_obj, 52, 63)
-
-    tk_alt  = mean_motion_to_altitude(tk_mm)  if tk_mm  > 0 else 500.0
-    deb_alt = mean_motion_to_altitude(deb_mm) if deb_mm > 0 else 500.0
-
-    try:
-        tca_dt = datetime.fromisoformat(event['tca_utc'])
-        now_dt = datetime.now(timezone.utc)
-        time_to_tca_h = (tca_dt - now_dt).total_seconds() / 3600
-    except:
-        time_to_tca_h = 24.0
-
-    miss_dist  = event.get('miss_distance_km', 50.0)
-    rel_vel    = event.get('relative_velocity_km_s', 7.0)
-    radial     = event.get('radial_miss_km', 10.0)
-    intrack    = event.get('intrack_miss_km', 30.0)
-    crosstrack = event.get('crosstrack_miss_km', 20.0)
-    pc         = event.get('analytic_pc', 0.0)
-    is_leo     = 1 if event.get('orbital_band') == 'LEO' else 0
-
-    deb_name  = deb_obj.get('name', '').upper()
-    is_debris = 1 if any(k in deb_name for k in ['DEB', 'DEBRIS', 'R/B', 'ROCKET']) else 0
-
-    inc_diff      = abs(tk_inc - deb_inc)
-    alt_diff      = abs(tk_alt - deb_alt)
-    closing_speed = rel_vel * math.cos(math.radians(min(inc_diff, 90)))
-
-    return {
-        'miss_distance_km':       miss_dist,
-        'relative_velocity_km_s': rel_vel,
-        'time_to_tca_h':          max(0, time_to_tca_h),
-        'radial_miss_km':         radial,
-        'intrack_miss_km':        intrack,
-        'crosstrack_miss_km':     crosstrack,
-        'analytic_pc':            pc,
-        'tk_inclination':         tk_inc,
-        'tk_eccentricity':        tk_ecc,
-        'tk_altitude_km':         tk_alt,
-        'tk_mean_motion':         tk_mm,
-        'deb_inclination':        deb_inc,
-        'deb_eccentricity':       deb_ecc,
-        'deb_altitude_km':        deb_alt,
-        'deb_mean_motion':        deb_mm,
-        'inclination_diff':       inc_diff,
-        'altitude_diff_km':       alt_diff,
-        'closing_speed_km_s':     closing_speed,
-        'is_leo':                 is_leo,
-        'is_debris':              is_debris,
-        'hbr_km':                 event.get('hbr_km', 0.02),
-    }
-
-# ── Feature matrix ──────────────────────────────────────────────────────────
-print("[Extract] Features çıkarılıyor...")
-feature_rows = []
-for ev in events:
-    feat = extract_features(ev, catalog)
-    feature_rows.append(feat)
-
-meta_path = os.path.join(MODELS_DIR, 'model_meta.json')
-with open(meta_path) as f:
-    meta = json.load(f)
-feature_keys = meta['feature_keys']
-
-X = np.array([[row[k] for k in feature_keys] for row in feature_rows], dtype=np.float32)
-print(f"[Extract] {len(X)} event | {len(feature_keys)} feature")
-
-# ── Model yükle ve normalize et ─────────────────────────────────────────────
-rf_model = joblib.load(os.path.join(MODELS_DIR, 'rf_model.pkl'))
-scaler   = joblib.load(os.path.join(MODELS_DIR, 'scaler.pkl'))
-X_scaled = scaler.transform(X)
-
-xgb_model  = None
-xgb_path   = os.path.join(MODELS_DIR, 'xgb_model.pkl')
-if os.path.exists(xgb_path):
-    xgb_model = joblib.load(xgb_path)
-    print("[Model] RF + XGBoost ensemble yüklendi")
-else:
-    print("[Model] Sadece RF kullanılıyor (xgb_model.pkl bulunamadı)")
-
-# ── RF inference ─────────────────────────────────────────────────────────────
-rf_proba = rf_model.predict_proba(X_scaled)   # (N, 3): class 0,1,2
-
-if xgb_model:
-    xgb_proba  = xgb_model.predict_proba(X_scaled)
-    ens_proba  = 0.6 * rf_proba + 0.4 * xgb_proba
-else:
-    ens_proba = rf_proba
-
-ml_labels = np.argmax(ens_proba, axis=1)   # 0=GREEN, 1=YELLOW, 2=RED/ORANGE
-
-# ── LSTM inference (opsiyonel) ────────────────────────────────────────────────
-lstm_scores = None
-lstm_path   = os.path.join(MODELS_DIR, 'lstm_model.h5')
-if os.path.exists(lstm_path):
-    try:
-        import tensorflow as tf
-        lstm_model = tf.keras.models.load_model(lstm_path)
-        # Tek event'i seq_len=5 tekrarlayarak sequence oluştur (inference modu)
-        seq_len    = 5
-        X_seq      = np.tile(X_scaled[:, np.newaxis, :], (1, seq_len, 1))
-        lstm_proba = lstm_model.predict(X_seq, verbose=0)   # (N, 3)
-        # Ensemble: RF/XGB 0.7 + LSTM 0.3
-        ens_proba  = 0.7 * ens_proba + 0.3 * lstm_proba
-        ml_labels  = np.argmax(ens_proba, axis=1)
-        lstm_scores = True
-        print(f"[LSTM] Yüklendi ve çalıştırıldı: {lstm_path}")
-    except Exception as e:
-        print(f"[WARN] LSTM inference başarısız: {e}")
-
-# ── SHAP explanations ─────────────────────────────────────────────────────────
-shap_vals = None
-try:
-    import shap
-    explainer = shap.TreeExplainer(rf_model)
-    sv = explainer.shap_values(X_scaled)
-    # sv: list of 3 arrays (one per class), each (N, F)
-    sv_arr = np.array(sv) if isinstance(sv, list) else sv
-    if sv_arr.ndim == 3:
-        # (3, N, F) → mean over classes axis=0 → (N, F)
-        # (N, F, 3) → mean over classes axis=2 → (N, F)
-        if sv_arr.shape[0] == len(X_scaled):
-            shap_vals = np.abs(sv_arr).mean(axis=2)   # (N, F)
-        else:
-            shap_vals = np.abs(sv_arr).mean(axis=0)   # (N, F)
-    elif sv_arr.ndim == 2:
-        shap_vals = np.abs(sv_arr)
-    else:
-        shap_vals = None
-    print(f"[SHAP] Tamamlandı — shape={shap_vals.shape if shap_vals is not None else 'N/A'}")
-except Exception as e:
-    shap_vals = None
-    print(f"[WARN] SHAP atlandı: {e}")
-
-# ── Label → tier ─────────────────────────────────────────────────────────────
-LABEL_TIER = {0: 'GREEN', 1: 'YELLOW', 2: 'RED/ORANGE'}
-TIER_ORDER  = {'GREEN': 0, 'YELLOW': 1, 'ORANGE': 2, 'RED': 3, 'RED/ORANGE': 2}
-
-def resolve_tier(ml_label, analytic_tier, miss_km, vel_km_s=0.0):
-    """ML tahminini analitik tier ile birleştir, kötüyü al.
-    RED için: miss < 1 km VE hız >= 1 km/s (compute_pc.py ile aynı eşik).
-    """
-    ml_tier = LABEL_TIER[ml_label]
-    if ml_tier == 'RED/ORANGE':
-        if miss_km < 1.0 and vel_km_s >= 1.0:
-            ml_tier = 'RED'
-        else:
-            ml_tier = 'ORANGE'
-    a_ord = TIER_ORDER.get(analytic_tier, 0)
-    m_ord = TIER_ORDER.get(ml_tier, 0)
-    return ml_tier if m_ord >= a_ord else analytic_tier
-
-# ── Sonuçları derle ───────────────────────────────────────────────────────────
-now = datetime.now(timezone.utc)
-ts  = now.strftime('%Y-%m-%d_%H%M')
-
-tier_counts = {'RED': 0, 'ORANGE': 0, 'YELLOW': 0, 'GREEN': 0}
-records = []
-
-for i, ev in enumerate(events):
-    ml_lbl       = int(ml_labels[i])
-    analytic_tier = ev.get('severity_tier', 'GREEN')
-    miss_km       = ev.get('miss_distance_km', 50.0)
-    vel_km_s      = ev.get('relative_velocity_km_s', 0.0)
-    final_tier    = resolve_tier(ml_lbl, analytic_tier, miss_km, vel_km_s)
-
-    tier_counts[final_tier] = tier_counts.get(final_tier, 0) + 1
-
-    # Risk skoru: P(class>=1) = 1 - P(GREEN)
-    risk_score = float(1.0 - ens_proba[i, 0])
-
-    # Top SHAP features
-    top_shap = []
-    if shap_vals is not None:
-        top_idxs = [int(x) for x in np.argsort(shap_vals[i])[::-1][:3]]
-        for fi in top_idxs:
-            top_shap.append({
-                'feature': feature_keys[fi],
-                'shap':    float(shap_vals[i, fi]),
-                'value':   float(X[i, fi]),
-            })
-
-    records.append({
-        'event_id':               ev.get('event_id', f'ev_{i:04d}'),
-        'turkish_name':           ev.get('turkish_name', ''),
-        'turkish_norad_id':       ev.get('turkish_norad_id', 0),
-        'debris_norad_id':        ev.get('debris_norad_id', 0),
-        'tca_utc':                ev.get('tca_utc', ''),
-        'miss_distance_km':       miss_km,
-        'relative_velocity_km_s': ev.get('relative_velocity_km_s', 0.0),
-        'analytic_pc':            ev.get('analytic_pc', 0.0),
-        'analytic_tier':          analytic_tier,
-        'ml_label':               ml_lbl,
-        'risk_score':             round(risk_score, 6),
-        'final_tier':             final_tier,
-        'lstm_used':              lstm_scores is True,
-        'top_shap_features':      top_shap,
-    })
-
-output = {
-    'scored_at_utc':       now.isoformat(),
-    'total_scored':        len(records),
-    'tier_counts':         tier_counts,
-    'lstm_used':           lstm_scores is True,
-    'xgb_used':            xgb_model is not None,
-    'scored_conjunctions': records,
+FEATURE_LABELS = {
+    'miss_distance_km':       'miss distance',
+    'relative_velocity_km_s': 'relative velocity',
+    'tca_hours_from_now':     'time to closest approach',
+    'log10_pc_analytic':      'analytic collision probability',
+    'tca_urgency':            'approach urgency',
+    'velocity_miss_product':  'encounter energy',
+    'orbital_similarity_score': 'orbital similarity',
+    'object_type_encoded':    'debris object type',
+    'delta_inclination_deg':  'orbital inclination difference',
+    'delta_sma_km':           'orbital altitude difference',
 }
 
-output_path = os.path.join(OUTPUTS_DIR, f"{ts}_scored-conjunctions.json")
-with open(output_path, 'w') as f:
-    json.dump(output, f, indent=2)
+ML_TIER_THRESHOLDS = [
+    ('RED',    0.50),
+    ('ORANGE', 0.10),
+    ('YELLOW', 0.001),
+    ('GREEN',  0.0),
+]
 
-print(f"\n[Done] {len(records)} event skorlandı")
-print(f"  RED:{tier_counts.get('RED',0)} ORANGE:{tier_counts.get('ORANGE',0)} YELLOW:{tier_counts.get('YELLOW',0)} GREEN:{tier_counts.get('GREEN',0)}")
-print(f"  Çıktı: {os.path.basename(output_path)}")
+ANALYTIC_TIER_ORDER = {'GREEN': 0, 'YELLOW': 1, 'ORANGE': 2, 'RED': 3}
 
-# RED olayları vurgula
-for rec in records:
-    if rec['final_tier'] == 'RED':
-        shap_str = ', '.join(f["feature"] for f in rec['top_shap_features'][:2])
-        print(f"  !! RED: {rec['turkish_name']} × NORAD {rec['debris_norad_id']} | TCA {rec['tca_utc']} | risk={rec['risk_score']:.4f} | SHAP: {shap_str}")
+
+def ml_score_to_tier(score: float) -> str:
+    for tier, threshold in ML_TIER_THRESHOLDS:
+        if score >= threshold:
+            return tier
+    return 'GREEN'
+
+
+def load_latest_file(directory: str, suffix: str) -> str | None:
+    if not os.path.exists(directory):
+        return None
+    files = sorted([f for f in os.listdir(directory) if f.endswith(suffix)])
+    return os.path.join(directory, files[-1]) if files else None
+
+
+def main():
+    script_dir  = os.path.dirname(os.path.abspath(__file__))
+    agent_dir   = os.path.dirname(script_dir)
+    agents_root = os.path.dirname(agent_dir)
+    models_dir  = os.path.join(agent_dir, 'data', 'models')
+    outputs_dir = os.path.join(agent_dir, 'outputs')
+    os.makedirs(outputs_dir, exist_ok=True)
+
+    # Load manifest — check model is approved
+    manifest_path = os.path.join(models_dir, 'model_manifest.json')
+    if not os.path.exists(manifest_path):
+        print("[WARN] No model manifest — using analytic Pc tiers only")
+        use_ml = False
+    else:
+        with open(manifest_path) as f:
+            manifest = json.load(f)
+        if manifest.get('status') != 'approved':
+            print(f"[WARN] Model status '{manifest.get('status')}' — using analytic Pc tiers only")
+            use_ml = False
+        else:
+            use_ml = True
+            print(f"[Model] {manifest['version']} | AUC={manifest['test_auc_roc']:.4f}")
+
+    # Load feature matrix
+    features_path = load_latest_file(
+        os.path.join(agents_root, 'conjunction-analysis-agent', 'outputs'),
+        '_ml-features.parquet'
+    )
+    if not features_path:
+        print("[ERROR] No feature file found")
+        return
+    df = pd.read_parquet(features_path)
+    print(f"[Score] {len(df)} events to score")
+
+    now = datetime.now(timezone.utc)
+    ts  = now.strftime('%Y-%m-%d_%H%M')
+
+    if not use_ml or len(df) == 0:
+        # Fall back: use analytic tier directly
+        records = []
+        for _, row in df.iterrows():
+            records.append({
+                'event_id':          row['event_id'],
+                'turkish_satellite': row.get('turkish_norad_id', 0),
+                'debris_norad_id':   row.get('debris_norad_id', 0),
+                'tca_utc':           row.get('tca_utc', ''),
+                'ml_score':          None,
+                'analytic_tier':     row.get('severity_tier', 'GREEN'),
+                'final_tier':        row.get('severity_tier', 'GREEN'),
+                'tier_override':     False,
+                'lstm_used':         False,
+                'model_version':     'ANALYTIC_ONLY',
+                'top_shap_features': [],
+            })
+        output = {
+            'scored_at_utc': now.isoformat(), 'model_version': 'ANALYTIC_ONLY',
+            'total_scored': len(records), 'tier_counts': {},
+            'tier_overrides': 0, 'scored_conjunctions': records,
+        }
+        output_path = os.path.join(outputs_dir, f"{ts}_scored-conjunctions.json")
+        with open(output_path, 'w') as f:
+            json.dump(output, f, indent=2)
+        print(f"[Done] Written (analytic-only): {os.path.basename(output_path)}")
+        return
+
+    # Load model artifacts
+    rf_model = joblib.load(os.path.join(models_dir, 'rf_model.pkl'))
+    scaler   = joblib.load(os.path.join(models_dir, 'scaler.pkl'))
+
+    # Apply scaler if not already normalized
+    X = df[FEATURE_COLS].fillna(df[FEATURE_COLS].median()).values
+    if not df['normalized'].iloc[0]:
+        X = scaler.transform(X)
+
+    t_start = time.time()
+    rf_proba = rf_model.predict_proba(X)[:, 1]
+
+    # LSTM (optional)
+    lstm_used   = False
+    lstm_proba  = np.zeros(len(df))
+    lstm_wpath  = os.path.join(models_dir, 'lstm_weights.h5')
+    if os.path.exists(lstm_wpath) and manifest.get('lstm_included'):
+        try:
+            import tensorflow as tf
+            from tensorflow import keras
+            lstm_model = keras.Sequential([
+                keras.layers.LSTM(64, input_shape=(6, 3)),
+                keras.layers.Dropout(0.2),
+                keras.layers.Dense(32, activation='relu'),
+                keras.layers.Dense(1, activation='sigmoid'),
+            ])
+            lstm_model.load_weights(lstm_wpath)
+            # Stub: create dummy sequence input (6 steps × 3 features) from tabular features
+            seq_input = np.zeros((len(df), 6, 3), dtype=np.float32)
+            seq_input[:, -1, 0] = X[:, FEATURE_COLS.index('miss_distance_km')]
+            seq_input[:, -1, 1] = X[:, FEATURE_COLS.index('relative_velocity_km_s')]
+            seq_input[:, -1, 2] = X[:, FEATURE_COLS.index('log10_pc_analytic')]
+            lstm_proba = lstm_model.predict(seq_input, verbose=0).flatten()
+            lstm_used  = True
+        except Exception as e:
+            print(f"[WARN] LSTM inference failed: {e} — using RF only")
+
+    final_scores = 0.7 * rf_proba + 0.3 * lstm_proba if lstm_used else rf_proba
+    inference_ms = (time.time() - t_start) * 1000
+
+    # SHAP explanations
+    try:
+        import shap
+        explainer  = shap.TreeExplainer(rf_model.base_estimator if hasattr(rf_model, 'base_estimator') else rf_model)
+        shap_values = explainer.shap_values(X)
+        if isinstance(shap_values, list):
+            shap_values = shap_values[1]   # class 1 (high risk)
+        shap_available = True
+    except Exception as e:
+        print(f"[WARN] SHAP computation failed: {e}")
+        shap_values   = np.zeros_like(X)
+        shap_available = False
+
+    # Build output records
+    tier_counts = {'RED': 0, 'ORANGE': 0, 'YELLOW': 0, 'GREEN': 0}
+    tier_overrides = 0
+    records = []
+
+    for i, row in df.iterrows():
+        idx          = df.index.get_loc(i)
+        ml_score     = float(final_scores[idx])
+        ml_tier      = ml_score_to_tier(ml_score)
+        analytic_tier = row.get('severity_tier', 'GREEN')
+
+        # Tier override when ML and analytic differ by ≥ 1 level
+        tier_override = abs(ANALYTIC_TIER_ORDER.get(ml_tier, 0) - ANALYTIC_TIER_ORDER.get(analytic_tier, 0)) >= 1
+        final_tier    = ml_tier
+        if tier_override:
+            tier_overrides += 1
+
+        tier_counts[final_tier] = tier_counts.get(final_tier, 0) + 1
+
+        # Top 3 SHAP features
+        top_shap = []
+        if shap_available:
+            abs_shap = np.abs(shap_values[idx])
+            top_idxs = np.argsort(abs_shap)[::-1][:3]
+            for fi in top_idxs:
+                fname = FEATURE_COLS[fi]
+                label = FEATURE_LABELS.get(fname, fname.replace('_', ' '))
+                top_shap.append({
+                    'feature': fname,
+                    'label':   label,
+                    'value':   float(X[idx, fi]),
+                    'shap':    float(shap_values[idx, fi]),
+                })
+
+        records.append({
+            'event_id':          row['event_id'],
+            'turkish_norad_id':  int(row['turkish_norad_id']),
+            'debris_norad_id':   int(row['debris_norad_id']),
+            'tca_utc':           row['tca_utc'],
+            'miss_distance_km':  float(row.get('miss_distance_km', 0)),
+            'relative_velocity_km_s': float(row.get('relative_velocity_km_s', 0)),
+            'analytic_tier':     analytic_tier,
+            'ml_score':          ml_score,
+            'final_tier':        final_tier,
+            'tier_override':     tier_override,
+            'lstm_used':         lstm_used,
+            'model_version':     manifest['version'],
+            'top_shap_features': top_shap,
+        })
+
+    output = {
+        'scored_at_utc':   now.isoformat(),
+        'model_version':   manifest['version'],
+        'total_scored':    len(records),
+        'tier_counts':     tier_counts,
+        'tier_overrides':  tier_overrides,
+        'inference_ms':    round(inference_ms, 1),
+        'lstm_used':       lstm_used,
+        'scored_conjunctions': records,
+    }
+
+    output_path = os.path.join(outputs_dir, f"{ts}_scored-conjunctions.json")
+    with open(output_path, 'w') as f:
+        json.dump(output, f, indent=2)
+
+    print(f"[Done] {len(records)} scored | RED:{tier_counts.get('RED',0)} ORANGE:{tier_counts.get('ORANGE',0)} YELLOW:{tier_counts.get('YELLOW',0)} | {inference_ms:.0f}ms")
+    print(f"       Overrides: {tier_overrides} | Written: {os.path.basename(output_path)}")
+
+    for rec in records:
+        if rec['final_tier'] == 'RED':
+            print(f"  !! RED: NORAD {rec['turkish_norad_id']} × {rec['debris_norad_id']} | TCA {rec['tca_utc']} | ML={rec['ml_score']:.3f}")
+
+    return output_path
+
+
+if __name__ == '__main__':
+    main()
