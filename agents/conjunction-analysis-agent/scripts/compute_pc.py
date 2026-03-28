@@ -15,8 +15,8 @@ import numpy as np
 
 # ── Default covariance models (1-sigma, km, in RSW frame) ────────────────────
 DEFAULT_COVARIANCE = {
-    'LEO': {'radial': 0.1, 'intrack': 1.0, 'crosstrack': 0.1},
-    'GEO': {'radial': 0.5, 'intrack': 5.0, 'crosstrack': 0.5},
+    'LEO': {'radial': 0.02, 'intrack': 0.15, 'crosstrack': 0.02},
+    'GEO': {'radial': 0.1,  'intrack': 1.0,  'crosstrack': 0.1},
 }
 
 # Hard-body radii (km) per satellite class
@@ -39,6 +39,24 @@ TIER_THRESHOLDS = [
     ('YELLOW', 1e-6),
     ('GREEN',  0.0),
 ]
+
+# Miss distance based tier override (used when Pc underestimates risk)
+# Physically: < 1km at high velocity = operationally significant regardless of Pc
+MISS_DIST_TIERS = [
+    ('RED',    1.0),   # < 1 km
+    ('ORANGE', 3.0),   # < 3 km
+    ('YELLOW', 8.0),   # < 8 km
+    ('GREEN',  float('inf')),
+]
+
+def assign_tier_by_miss(miss_km: float, vel_km_s: float) -> str:
+    for tier, threshold in MISS_DIST_TIERS:
+        if miss_km < threshold:
+            # Require minimum velocity for RED/ORANGE
+            if tier in ('RED', 'ORANGE') and vel_km_s < 1.0:
+                continue
+            return tier
+    return 'GREEN'
 
 
 def assign_tier(pc: float) -> str:
@@ -165,7 +183,11 @@ def main():
         rel_vel_eci = np.array([0.0, rel_vel_mag, 0.0])  # approximate as along-track
 
         pc = chan_pc(miss_vec_eci, rel_vel_eci, C_combined_eci, hbr_km)
-        tier = assign_tier(pc)
+        tier_pc   = assign_tier(pc)
+        tier_miss = assign_tier_by_miss(rec['miss_distance_km'], rec['relative_velocity_km_s'])
+        # Take the worse (higher risk) of the two
+        tier_order = ['GREEN', 'YELLOW', 'ORANGE', 'RED']
+        tier = tier_order[max(tier_order.index(tier_pc), tier_order.index(tier_miss))]
         tier_counts[tier] += 1
 
         event = {**rec, 'analytic_pc': pc, 'severity_tier': tier,
