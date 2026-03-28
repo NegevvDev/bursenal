@@ -147,9 +147,16 @@ for sat_name, sat_evs in sat_real.items():
         extended.append(ev)
         for _ in range(8):
             noise_ev = {}
+            # Negatif olabilecek featurelar (log, açı farkları vb.) clamp edilmez
+            ALLOW_NEGATIVE = {
+                'log10_pc_analytic', 'radial_miss_km', 'intrack_miss_km',
+                'crosstrack_miss_km', 'delta_inclination_deg', 'delta_sma_km',
+                'primary_raan_deg', 'secondary_raan_deg',
+            }
             for k in FEATURE_COLS:
                 v = ev[k]
-                noise_ev[k] = max(0.0, v + np.random.normal(0, abs(v) * 0.1 + 1e-9))
+                noisy = v + np.random.normal(0, abs(v) * 0.1 + 1e-9)
+                noise_ev[k] = float(noisy) if k in ALLOW_NEGATIVE else max(0.0, float(noisy))
             miss = noise_ev['miss_distance_km']
             vel2 = noise_ev['relative_velocity_km_s']
             lpc  = noise_ev['log10_pc_analytic']
