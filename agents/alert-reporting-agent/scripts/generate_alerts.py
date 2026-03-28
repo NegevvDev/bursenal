@@ -115,7 +115,7 @@ def format_alert_block(ev: dict, satellite_names: dict, tier: str, is_new: bool)
         f"| TCA | {tca_str} |",
         f"| Miss Distance | {miss_dist:.3f} km |",
         f"| Relative Velocity | {rel_vel:.3f} km/s |",
-        f"| ML Risk Score | {ml_score:.4f} |",
+        f"| ML Risk Score | {ml_score:.4f} |" if ml_score is not None else f"| ML Risk Score | N/A |",
         f"| Analytic Tier | {ev.get('analytic_tier', 'N/A')} |",
         f"| Tier Override | {override} |",
         f"| Top Risk Factors | {shap_expl} |",
