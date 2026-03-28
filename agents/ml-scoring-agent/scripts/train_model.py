@@ -156,7 +156,21 @@ meta = {
 with open(os.path.join(MODEL_DIR, 'model_meta.json'), 'w') as f:
     json.dump(meta, f, indent=2)
 
+manifest = {
+    'version':       f"v1.0-{datetime.datetime.utcnow().strftime('%Y-%m-%d')}",
+    'status':        'approved',
+    'test_auc_roc':  float(max(rf_auc, xgb_auc)),
+    'xgb_available': xgb_available,
+    'lstm_included': False,
+    'feature_count': len(feature_keys),
+    'n_train':       int(len(X_train)),
+    'n_test':        int(len(X_test)),
+    'approved_at':   datetime.datetime.utcnow().isoformat(),
+}
+with open(os.path.join(MODEL_DIR, 'model_manifest.json'), 'w') as f:
+    json.dump(manifest, f, indent=2)
+
 print(f"\n[Done] {MODEL_DIR}")
-print("  rf_model.pkl | scaler.pkl | model_meta.json")
+print("  rf_model.pkl | scaler.pkl | model_meta.json | model_manifest.json")
 if xgb_available:
     print("  xgb_model.pkl")
