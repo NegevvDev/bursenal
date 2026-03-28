@@ -141,30 +141,25 @@ def main():
     # P(class=2) = P(RED/ORANGE) — daha keskin sinif ayirimi icin
     rf_proba = rf_proba_all[:, -1] if rf_proba_all.shape[1] > 2 else rf_proba_all[:, 1]
 
-    # LSTM (optional)
-    lstm_used   = False
-    lstm_proba  = np.zeros(len(df))
-    lstm_wpath  = os.path.join(models_dir, 'lstm_weights.h5')
-    if os.path.exists(lstm_wpath) and manifest.get('lstm_included'):
+    # LSTM (optional) — lstm_model.h5 (seq_len=5, 21 features, 3 classes)
+    lstm_used  = False
+    lstm_proba = np.zeros(len(df))
+    lstm_path  = os.path.join(models_dir, 'lstm_model.h5')
+    if os.path.exists(lstm_path):
         try:
             import tensorflow as tf
-            from tensorflow import keras
-            lstm_model = keras.Sequential([
-                keras.layers.LSTM(64, input_shape=(6, 3)),
-                keras.layers.Dropout(0.2),
-                keras.layers.Dense(32, activation='relu'),
-                keras.layers.Dense(1, activation='sigmoid'),
-            ])
-            lstm_model.load_weights(lstm_wpath)
-            # Stub: create dummy sequence input (6 steps × 3 features) from tabular features
-            seq_input = np.zeros((len(df), 6, 3), dtype=np.float32)
-            seq_input[:, -1, 0] = X[:, FEATURE_COLS.index('miss_distance_km')]
-            seq_input[:, -1, 1] = X[:, FEATURE_COLS.index('relative_velocity_km_s')]
-            seq_input[:, -1, 2] = X[:, FEATURE_COLS.index('log10_pc_analytic')]
-            lstm_proba = lstm_model.predict(seq_input, verbose=0).flatten()
+            lstm_model = tf.keras.models.load_model(lstm_path)
+            # Her event'i seq_len=5 kez tekrarla (tek snapshot -> sequence)
+            seq_len   = 5
+            n_feat    = len(FEATURE_COLS)
+            seq_input = np.tile(X[:, np.newaxis, :], (1, seq_len, 1)).astype(np.float32)
+            lstm_out  = lstm_model.predict(seq_input, verbose=0)  # (N, 3)
+            # P(class=2) — RED/ORANGE olasılığı
+            lstm_proba = lstm_out[:, -1] if lstm_out.shape[1] > 1 else lstm_out.flatten()
             lstm_used  = True
+            print(f"[LSTM] Yuklendi: {lstm_path}")
         except Exception as e:
-            print(f"[WARN] LSTM inference failed: {e} — using RF only")
+            print(f"[WARN] LSTM inference basarisiz: {e} — sadece RF+XGB")
 
     final_scores = 0.7 * rf_proba + 0.3 * lstm_proba if lstm_used else rf_proba
     inference_ms = (time.time() - t_start) * 1000
