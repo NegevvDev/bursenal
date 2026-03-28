@@ -144,8 +144,8 @@ def main():
     # LSTM (optional) — lstm_model.h5 (seq_len=5, 21 features, 3 classes)
     lstm_used  = False
     lstm_proba = np.zeros(len(df))
-    lstm_path  = None  # LSTM disabled — training data label bug, RF+XGB sufficient
-    if lstm_path and os.path.exists(lstm_path):
+    lstm_path  = os.path.join(models_dir, 'lstm_model.h5')
+    if os.path.exists(lstm_path):
         try:
             import tensorflow as tf
             lstm_model = tf.keras.models.load_model(lstm_path)
