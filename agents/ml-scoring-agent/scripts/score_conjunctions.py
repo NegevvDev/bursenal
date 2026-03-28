@@ -197,12 +197,16 @@ except Exception as e:
 LABEL_TIER = {0: 'GREEN', 1: 'YELLOW', 2: 'RED/ORANGE'}
 TIER_ORDER  = {'GREEN': 0, 'YELLOW': 1, 'ORANGE': 2, 'RED': 3, 'RED/ORANGE': 2}
 
-def resolve_tier(ml_label, analytic_tier, miss_km):
-    """ML tahminini analitik tier ile birleştir, kötüyü al."""
+def resolve_tier(ml_label, analytic_tier, miss_km, vel_km_s=0.0):
+    """ML tahminini analitik tier ile birleştir, kötüyü al.
+    RED için: miss < 1 km VE hız >= 1 km/s (compute_pc.py ile aynı eşik).
+    """
     ml_tier = LABEL_TIER[ml_label]
-    # Eğer ML RED/ORANGE diyorsa ve miss < 3 km → RED, değilse ORANGE
     if ml_tier == 'RED/ORANGE':
-        ml_tier = 'RED' if miss_km < 3.0 else 'ORANGE'
+        if miss_km < 1.0 and vel_km_s >= 1.0:
+            ml_tier = 'RED'
+        else:
+            ml_tier = 'ORANGE'
     a_ord = TIER_ORDER.get(analytic_tier, 0)
     m_ord = TIER_ORDER.get(ml_tier, 0)
     return ml_tier if m_ord >= a_ord else analytic_tier
@@ -218,7 +222,8 @@ for i, ev in enumerate(events):
     ml_lbl       = int(ml_labels[i])
     analytic_tier = ev.get('severity_tier', 'GREEN')
     miss_km       = ev.get('miss_distance_km', 50.0)
-    final_tier    = resolve_tier(ml_lbl, analytic_tier, miss_km)
+    vel_km_s      = ev.get('relative_velocity_km_s', 0.0)
+    final_tier    = resolve_tier(ml_lbl, analytic_tier, miss_km, vel_km_s)
 
     tier_counts[final_tier] = tier_counts.get(final_tier, 0) + 1
 
