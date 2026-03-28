@@ -54,7 +54,7 @@ rf = RandomForestClassifier(
     max_depth=6,
     min_samples_leaf=8,
     max_features='sqrt',
-    class_weight='balanced',
+    class_weight={0: 1, 1: 3, 2: 10},
     random_state=42,
     n_jobs=-1,
 )

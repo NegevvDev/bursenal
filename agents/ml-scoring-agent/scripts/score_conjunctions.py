@@ -39,7 +39,7 @@ FEATURE_LABELS = {
 }
 
 ML_TIER_THRESHOLDS = [
-    ('RED',    0.52),
+    ('RED',    0.80),
     ('ORANGE', 0.50),
     ('YELLOW', 0.15),
     ('GREEN',  0.0),
