@@ -102,7 +102,7 @@ for _ in range(N_SYNTHETIC):
         label = 0
 
     # 8% label noise — gerçek dünyadaki belirsizliği simüle eder
-    if np.random.random() < 0.08:
+    if np.random.random() < 0.04:
         label = int(np.random.choice([0, 1, 2]))
     feat['label']  = label
     feat['source'] = 'synthetic'
