@@ -352,6 +352,7 @@ nav{display:flex;align-items:center;justify-content:space-between;padding:14px 2
     <div class="live-dot"><div class="dot"></div>CANLI</div>
     <div id="api-status-badge" style="font-family:'Space Mono',monospace;font-size:10px;padding:4px 11px;border-radius:12px;background:rgba(255,255,255,0.05);color:var(--muted);border:1px solid var(--borderB);white-space:nowrap;">○ Bağlanıyor</div>
     <button id="run-pipeline-btn" onclick="runPipeline()" style="font-family:'Space Mono',monospace;font-size:10px;font-weight:700;color:#4ee8d0;background:rgba(78,232,208,0.08);border:1px solid rgba(78,232,208,0.3);border-radius:6px;padding:5px 12px;cursor:pointer;transition:all 0.2s;">▶ Pipeline</button>
+    <div id="sound-toggle" style="display:flex;align-items:center;gap:6px;font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);padding:4px 10px;border:1px solid var(--border);border-radius:6px;cursor:pointer;" onclick="toggleSound()" title="Sesi Aç/Kapat"><div id="sound-toggle-dot" style="width:7px;height:7px;border-radius:50%;background:var(--green)"></div><span id="sound-toggle-text">SES: AÇIK</span></div>
     <div id="clock">--:--:-- UTC</div>
   </div>
 </nav>
@@ -415,7 +416,18 @@ nav{display:flex;align-items:center;justify-content:space-between;padding:14px 2
       <div style="position:absolute;bottom:30px;left:50%;transform:translateX(-50%);font-family:'Space Mono',monospace;font-size:10px;color:var(--dim);">Sürükle: Kamerayı Döndür · Fare Tekerleği: Yakınlaştır/Uzaklaştır</div>
     </div>
     <div id="view-conjunction" class="ui-layer" style="display:none;">
-      <div style="position:absolute;bottom:30px;left:50%;transform:translateX(-50%);font-family:'Space Mono',monospace;font-size:10px;color:var(--dim);text-align:center;background:rgba(0,0,0,0.7);padding:10px 20px;border-radius:8px;">SABİT UZAY GÖZLEMCİSİ KAMERASI<br><span style="color:var(--accent);">Kamera uzayda sabittir, uyduları takip etmez. Uydular kadrajdan geçer.</span></div>
+      <div style="position:absolute;top:14px;right:14px;background:rgba(7,17,30,0.92);border:1px solid rgba(80,160,255,0.3);border-radius:10px;padding:14px 18px;font-family:'Space Mono',monospace;font-size:10px;pointer-events:none;min-width:210px;backdrop-filter:blur(8px);">
+        <div style="color:#4ee8d0;font-weight:700;font-size:11px;margin-bottom:10px;letter-spacing:0.06em">🛰 KAVUŞUM BİLGİSİ</div>
+        <div style="display:flex;justify-content:space-between;margin-bottom:5px;"><span style="color:#6a96bc">Uydu</span><span id="hud-sat" style="color:#4ee8d0">—</span></div>
+        <div style="display:flex;justify-content:space-between;margin-bottom:5px;"><span style="color:#6a96bc">Enkaz</span><span id="hud-debris" style="color:#ff3d50">—</span></div>
+        <div style="display:flex;justify-content:space-between;margin-bottom:5px;"><span style="color:#6a96bc">Bağıl Hız</span><span id="hud-vel" style="color:#ddeeff">—</span></div>
+        <div style="display:flex;justify-content:space-between;margin-bottom:5px;"><span style="color:#6a96bc">Miss Dist.</span><span id="hud-miss" style="color:#ffcc00">—</span></div>
+        <div style="border-top:1px solid rgba(80,160,255,0.15);margin-top:8px;padding-top:8px;">
+          <div style="display:flex;justify-content:space-between;margin-bottom:4px;"><span style="color:#6a96bc">Anlık Mesafe</span><span id="hud-now" style="font-weight:700">—</span></div>
+          <div style="display:flex;justify-content:space-between;"><span style="color:#6a96bc">TCA Sayacı</span><span id="hud-timer" style="color:#ff3d50;font-weight:700">—</span></div>
+        </div>
+      </div>
+      <div style="position:absolute;bottom:14px;left:50%;transform:translateX(-50%);font-family:'Space Mono',monospace;font-size:10px;color:#6a96bc;pointer-events:none;text-align:center;">Sürükle: kamerayı döndür · Scroll: yakınlaştır/uzaklaştır<br><span style="color:var(--accent);">3B Hata Elipsoidi devrededir. TCA anında şok dalgası oluşur.</span></div>
     </div>
   </div>
 
@@ -587,6 +599,17 @@ nav{display:flex;align-items:center;justify-content:space-between;padding:14px 2
 </div>
 
 <script>
+// ─── SOUND SYSTEM ───────────────────────────────────────────────────────────
+let audioCtx = null; let soundEnabled = true;
+function initAudio() { if (!audioCtx) audioCtx = new AudioContext(); if (audioCtx.state === 'suspended') audioCtx.resume(); }
+window.addEventListener('click', initAudio, { once: true });
+function toggleSound() { soundEnabled = !soundEnabled; document.getElementById('sound-toggle-text').innerText = soundEnabled ? 'SES: AÇIK' : 'SES: KAPALI'; document.getElementById('sound-toggle-dot').style.background = soundEnabled ? 'var(--green)' : 'var(--red)'; if (soundEnabled) initAudio(); }
+function playOscillator(type, freq, dropFreq, duration, vol) { if (!soundEnabled || !audioCtx) return; try { const osc = audioCtx.createOscillator(); const gain = audioCtx.createGain(); osc.type = type; osc.frequency.setValueAtTime(freq, audioCtx.currentTime); if (dropFreq) { osc.frequency.exponentialRampToValueAtTime(dropFreq, audioCtx.currentTime + duration); } gain.gain.setValueAtTime(vol, audioCtx.currentTime); gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration); osc.connect(gain); gain.connect(audioCtx.destination); osc.start(); osc.stop(audioCtx.currentTime + duration); } catch(e) {} }
+function playUIClick() { playOscillator('sine', 1200, 600, 0.1, 0.05); }
+function playRadarPing(pitchMultiplier) { playOscillator('sine', 800 * (pitchMultiplier || 1), null, 0.15, 0.05); }
+function playBoom() { playOscillator('sine', 150, 20, 1.5, 0.6); }
+// ────────────────────────────────────────────────────────────────────────────
+
 const SATS=[
   {isim:'Türksat 4A',norad:39522,tip:'GEO',irtifa:35786,renk:0x60aaff,renkHex:'#60aaff',tle2:'2 39522   0.0600  88.2300 0001234 265.1234 244.8766  1.00270741 37024'},
   {isim:'Türksat 4B',norad:40985,tip:'GEO',irtifa:35786,renk:0x60aaff,renkHex:'#60aaff',tle2:'2 40985   0.0720  88.9200 0001456 275.2345 255.9876  1.00270741 30123'},
@@ -635,6 +658,10 @@ function sgp4(sat,minutesSinceEpoch){
   const u=argP+nu;
   return{x:r*(Math.cos(raan)*Math.cos(u)-Math.sin(raan)*Math.sin(u)*Math.cos(inc)),y:r*(Math.sin(raan)*Math.cos(u)+Math.cos(raan)*Math.sin(u)*Math.cos(inc)),z:r*Math.sin(u)*Math.sin(inc),r,a};
 }
+function getSatPosition(sat, minutesSinceEpoch) {
+  const {x,y,z} = sgp4(sat, minutesSinceEpoch);
+  return new THREE.Vector3(x*S_SCALE, z*S_SCALE, -y*S_SCALE);
+}
 let activeTab='main';
 let renderer;
 const scenes={},cameras={},ctrls={};
@@ -647,6 +674,7 @@ const overlay=document.getElementById('globe-overlay');
 const S_SCALE=1/6371;
 let conjSatMesh,conjDebrisMesh;
 let conjSatTrail,conjDebTrail;
+let covEllipsoid,shockwave;
 let currentConjunction=null;
 let isPlayingConjunction=false;
 let conjTimeCounter=0;
@@ -752,25 +780,33 @@ function applyFilters(tex){if(!tex)return;tex.anisotropy=renderer.capabilities.g
   scenes.debris.add(debrisPoints);
   scenes.conjunction=new THREE.Scene();scenes.conjunction.background=new THREE.Color(0x000000);scenes.conjunction.add(createStarField());
   cameras.conjunction=new THREE.PerspectiveCamera(40,w/h,0.001,1000);
-  ctrls.conjunction=new THREE.OrbitControls(cameras.conjunction,renderer.domElement);ctrls.conjunction.enableDamping=true;ctrls.conjunction.dampingFactor=0.05;ctrls.conjunction.enabled=false;
-  scenes.conjunction.add(new THREE.AmbientLight(0x000000,0.0));
-  sunLightConj=new THREE.DirectionalLight(0xffffff,2.0);scenes.conjunction.add(sunLightConj);
+  ctrls.conjunction=new THREE.OrbitControls(cameras.conjunction,renderer.domElement);ctrls.conjunction.enableDamping=true;ctrls.conjunction.dampingFactor=0.08;ctrls.conjunction.enabled=false;ctrls.conjunction.enablePan=false;
+  scenes.conjunction.add(new THREE.AmbientLight(0x112244,0.3));
+  sunLightConj=new THREE.DirectionalLight(0xffffff,3.0);sunLightConj.position.set(50,10,20);scenes.conjunction.add(sunLightConj);
   earthConj=new THREE.Mesh(new THREE.SphereGeometry(1,128,128),earthMat);scenes.conjunction.add(earthConj);
   cloudsConj=new THREE.Mesh(new THREE.SphereGeometry(1.006,128,128),cloudsMat);scenes.conjunction.add(cloudsConj);
   conjSatMesh=new THREE.Group();
-  const satBody=new THREE.Mesh(new THREE.BoxGeometry(0.0008,0.0004,0.0004),new THREE.MeshStandardMaterial({color:0x4ee8d0}));
-  const satPanel=new THREE.Mesh(new THREE.BoxGeometry(0.002,0.00005,0.0003),new THREE.MeshStandardMaterial({color:0x112255}));
-  conjSatMesh.add(satBody,satPanel);scenes.conjunction.add(conjSatMesh);
-  conjDebrisMesh=new THREE.Mesh(new THREE.SphereGeometry(0.0002,8,8),new THREE.MeshBasicMaterial({color:0xff3d50}));
+  const satBody=new THREE.Mesh(new THREE.BoxGeometry(0.003,0.0015,0.0015),new THREE.MeshStandardMaterial({color:0x4ee8d0,emissive:0x1a5a5a,roughness:0.3}));
+  const satPanel=new THREE.Mesh(new THREE.BoxGeometry(0.008,0.00015,0.001),new THREE.MeshStandardMaterial({color:0x112255,emissive:0x001133}));
+  const satAnt=new THREE.Mesh(new THREE.CylinderGeometry(0.00015,0.00015,0.003,4),new THREE.MeshBasicMaterial({color:0xaaaaaa}));
+  satAnt.rotation.z=Math.PI/2;satAnt.position.y=0.002;
+  conjSatMesh.add(satBody,satPanel,satAnt);scenes.conjunction.add(conjSatMesh);
+  conjDebrisMesh=new THREE.Mesh(new THREE.SphereGeometry(0.0008,10,10),new THREE.MeshStandardMaterial({color:0xff3d50,emissive:0x880000,roughness:0.6}));
   scenes.conjunction.add(conjDebrisMesh);
+  covEllipsoid=new THREE.Mesh(new THREE.SphereGeometry(1,16,16),new THREE.MeshBasicMaterial({color:0xff3d50,transparent:true,opacity:0.15,wireframe:true}));
+  conjDebrisMesh.add(covEllipsoid);
   const conjSatTrailGeo=new THREE.BufferGeometry();
   conjSatTrailGeo.setAttribute('position',new THREE.BufferAttribute(new Float32Array(500*3),3));
-  conjSatTrail=new THREE.Line(conjSatTrailGeo,new THREE.LineBasicMaterial({color:0x4ee8d0,transparent:true,opacity:0.6,linewidth:1}));
+  conjSatTrail=new THREE.Line(conjSatTrailGeo,new THREE.LineBasicMaterial({color:0x4ee8d0,transparent:true,opacity:0.8,linewidth:2}));
   scenes.conjunction.add(conjSatTrail);
   const conjDebTrailGeo=new THREE.BufferGeometry();
   conjDebTrailGeo.setAttribute('position',new THREE.BufferAttribute(new Float32Array(500*3),3));
-  conjDebTrail=new THREE.Line(conjDebTrailGeo,new THREE.LineBasicMaterial({color:0xff3d50,transparent:true,opacity:0.6,linewidth:1}));
+  conjDebTrail=new THREE.Line(conjDebTrailGeo,new THREE.LineBasicMaterial({color:0xff3d50,transparent:true,opacity:0.8,linewidth:2}));
   scenes.conjunction.add(conjDebTrail);
+  const shockwaveGeo=new THREE.RingGeometry(0.001,0.002,32);
+  const shockwaveMat=new THREE.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:0,side:THREE.DoubleSide});
+  shockwave=new THREE.Mesh(shockwaveGeo,shockwaveMat);
+  scenes.conjunction.add(shockwave);
   function animate(){
     requestAnimationFrame(animate);
     const sunOrbitAngle=window.GLOBAL_SIM_MINUTES*0.0005;
@@ -817,15 +853,14 @@ function applyFilters(tex){if(!tex)return;tex.anisotropy=renderer.capabilities.g
       cloudsConj.rotation.y=window.GLOBAL_EARTH_ROT+(window.GLOBAL_SIM_MINUTES*0.0001);
       sunLightConj.position.set(sunX,sunY,sunZ);
       if(currentConjunction&&isPlayingConjunction){
-        conjTimeCounter+=0.016;
+        conjTimeCounter+=0.008;
         let offsetSecs=conjTimeCounter-5.0;
         if(offsetSecs>2.0){isPlayingConjunction=false;offsetSecs=2.0;}
-        let timeStretch=15;
-        let simOffsetMins=(offsetSecs*timeStretch)/60.0;
+        const timeStretch=7.5;
+        const simOffsetMins=(offsetSecs*timeStretch)/60.0;
         const satTLE=SATS.find(s=>s.isim===currentConjunction.sat);
         const tcaMins=window.GLOBAL_SIM_MINUTES+(currentConjunction.tca_h*60);
-        const{x,y,z}=sgp4(satTLE,tcaMins+simOffsetMins);
-        const satPos=new THREE.Vector3(x*S_SCALE,z*S_SCALE,-y*S_SCALE);
+        const satPos=getSatPosition(satTLE,tcaMins+simOffsetMins);
         conjSatMesh.position.copy(satPos);conjSatMesh.lookAt(new THREE.Vector3(0,0,0));
         const pseudoVel=satPos.clone().sub(window.currentTcaPos).normalize();
         if(pseudoVel.lengthSq()===0)pseudoVel.set(1,0,0);
@@ -834,24 +869,49 @@ function applyFilters(tex){if(!tex)return;tex.anisotropy=renderer.capabilities.g
         const velUnits=(currentConjunction.vel*timeStretch)/6371;
         const debPos=satPos.clone().add(right.clone().multiplyScalar(visualDistUnits)).add(pseudoVel.clone().multiplyScalar(-offsetSecs*velUnits));
         conjDebrisMesh.position.copy(debPos);
-        if(isPlayingConjunction){
-          window.conjSatTrailPositions.push(satPos.clone());
-          window.conjDebTrailPositions.push(debPos.clone());
-          if(window.conjSatTrailPositions.length>200)window.conjSatTrailPositions.shift();
-          if(window.conjDebTrailPositions.length>200)window.conjDebTrailPositions.shift();
-          const satArr=conjSatTrail.geometry.attributes.position.array;
-          window.conjSatTrailPositions.forEach((p,i)=>{satArr[i*3]=p.x;satArr[i*3+1]=p.y;satArr[i*3+2]=p.z});
-          conjSatTrail.geometry.attributes.position.needsUpdate=true;
-          conjSatTrail.geometry.setDrawRange(0,window.conjSatTrailPositions.length);
-          const debArr=conjDebTrail.geometry.attributes.position.array;
-          window.conjDebTrailPositions.forEach((p,i)=>{debArr[i*3]=p.x;debArr[i*3+1]=p.y;debArr[i*3+2]=p.z});
-          conjDebTrail.geometry.attributes.position.needsUpdate=true;
-          conjDebTrail.geometry.setDrawRange(0,window.conjDebTrailPositions.length);
+        // Dynamic radar pings
+        const timeToTCA=Math.abs(offsetSecs);
+        let pingInterval=1.0;
+        if(timeToTCA<1.0)pingInterval=0.15;
+        else if(timeToTCA<2.0)pingInterval=0.3;
+        else if(timeToTCA<3.5)pingInterval=0.6;
+        if(offsetSecs<0&&(conjTimeCounter-(window.lastPingTime||0))>pingInterval){
+          playRadarPing(1.0+(5.0-timeToTCA)*0.15);
+          window.lastPingTime=conjTimeCounter;
         }
-        document.getElementById('conj-timer').innerText=`${(offsetSecs*timeStretch).toFixed(1)} s`;
+        // Boom at TCA
+        if(offsetSecs>=0&&!window.hasBoomed){playBoom();triggerImpactFlash();window.hasBoomed=true;}
+        // Shockwave expansion
+        if(offsetSecs>0&&offsetSecs<0.5){
+          const progress=offsetSecs/0.5;
+          shockwave.scale.setScalar(1+progress*30);
+          shockwave.material.opacity=1-Math.pow(progress,2);
+          shockwave.position.copy(window.currentTcaPos);
+          shockwave.lookAt(cameras.conjunction.position);
+        }else{shockwave.material.opacity=0;}
+        // Trails
+        window.conjSatTrailPositions.push(satPos.clone());
+        window.conjDebTrailPositions.push(debPos.clone());
+        if(window.conjSatTrailPositions.length>300)window.conjSatTrailPositions.shift();
+        if(window.conjDebTrailPositions.length>300)window.conjDebTrailPositions.shift();
+        const satArr=conjSatTrail.geometry.attributes.position.array;
+        window.conjSatTrailPositions.forEach((p,i)=>{satArr[i*3]=p.x;satArr[i*3+1]=p.y;satArr[i*3+2]=p.z});
+        conjSatTrail.geometry.attributes.position.needsUpdate=true;
+        conjSatTrail.geometry.setDrawRange(0,window.conjSatTrailPositions.length);
+        const debArr=conjDebTrail.geometry.attributes.position.array;
+        window.conjDebTrailPositions.forEach((p,i)=>{debArr[i*3]=p.x;debArr[i*3+1]=p.y;debArr[i*3+2]=p.z});
+        conjDebTrail.geometry.attributes.position.needsUpdate=true;
+        conjDebTrail.geometry.setDrawRange(0,window.conjDebTrailPositions.length);
+        // HUD updates
         const currentRealDist=Math.sqrt(Math.pow(currentConjunction.dist,2)+Math.pow(offsetSecs*timeStretch*currentConjunction.vel,2));
-        document.getElementById('conj-dist').innerText=`${currentRealDist.toFixed(2)} km`;
-        if(!isPlayingConjunction)document.getElementById('conj-timer').innerText+=' (DURDU)';
+        const distColor=currentRealDist<1?'#ff3d50':currentRealDist<5?'#ffcc00':'#22d66e';
+        const hudNow=document.getElementById('hud-now');
+        const hudTimer=document.getElementById('hud-timer');
+        if(hudNow){hudNow.textContent=currentRealDist.toFixed(2)+' km';hudNow.style.color=distColor;}
+        if(hudTimer){hudTimer.textContent=(offsetSecs*timeStretch).toFixed(1)+' s'+(isPlayingConjunction?'':' ✓');}
+        const trajDist=document.getElementById('traj-dist');if(trajDist){trajDist.textContent=currentRealDist.toFixed(3)+' km';trajDist.style.color=distColor;}
+        document.getElementById('conj-timer').innerText=(offsetSecs*timeStretch).toFixed(1)+' s'+(isPlayingConjunction?'':' (DURDU)');
+        document.getElementById('conj-dist').innerText=currentRealDist.toFixed(2)+' km';
       }
       renderer.render(scenes.conjunction,cameras.conjunction);
     }
@@ -864,6 +924,7 @@ function applyFilters(tex){if(!tex)return;tex.anisotropy=renderer.capabilities.g
   });
 })();
 function switchTab(tabId){
+  playUIClick();
   document.getElementById('view-main').style.display=(tabId==='main')?'block':'none';
   document.getElementById('view-heatmap').style.display=(tabId==='heatmap')?'block':'none';
   document.getElementById('view-debris').style.display=(tabId==='debris')?'block':'none';
@@ -879,30 +940,71 @@ function switchTab(tabId){
   if(ctrls.main){ctrls.main.enabled=(tabId==='main');ctrls.heatmap.enabled=(tabId==='heatmap');ctrls.debris.enabled=(tabId==='debris');ctrls.conjunction.enabled=(tabId==='conjunction');}
   window.dispatchEvent(new Event('resize'));
 }
+window.focusOnSat = function(satName) {
+  playUIClick();
+  switchTab('main');
+  const targetSat = satMeshes.find(s => s.sat.isim === satName);
+  if (targetSat) {
+    const pos = targetSat.grp.position.clone();
+    const isGEO = targetSat.sat.tip === 'GEO';
+    const offset = isGEO ? 1.5 : 0.8;
+    const camPos = pos.clone().normalize().multiplyScalar(pos.length() + offset);
+    camPos.y += isGEO ? 0.5 : 0.2;
+    cameras.main.position.copy(camPos);
+    ctrls.main.target.copy(pos);
+    ctrls.main.update();
+  }
+};
 window.playConjunction=function(index){
+  playUIClick();initAudio();
   currentConjunction=window.CONJUNCTION_DATA[index];
   conjTimeCounter=0;isPlayingConjunction=true;
+  window.lastPingTime=-999;window.hasBoomed=false;
+  if(shockwave)shockwave.material.opacity=0;
   window.conjSatTrailPositions=[];window.conjDebTrailPositions=[];
   conjSatTrail.geometry.setDrawRange(0,0);conjDebTrail.geometry.setDrawRange(0,0);
   const color=currentConjunction.tier==='RED'?0xff3d50:(currentConjunction.tier==='ORANGE'?0xff6428:0xffcc00);
   conjDebrisMesh.material.color.setHex(color);conjDebTrail.material.color.setHex(color);
+  if(covEllipsoid){covEllipsoid.material.color.setHex(color);covEllipsoid.scale.set(0.006,0.002,0.002);}
   const satTLE=SATS.find(s=>s.isim===currentConjunction.sat);
   const tcaMins=window.GLOBAL_SIM_MINUTES+(currentConjunction.tca_h*60);
-  const{x:x0,y:y0,z:z0}=sgp4(satTLE,tcaMins);
-  const satPosTCA=new THREE.Vector3(x0*S_SCALE,z0*S_SCALE,-y0*S_SCALE);
+  const satPosTCA=getSatPosition(satTLE,tcaMins);
   window.currentTcaPos=satPosTCA;
-  const{x:x1,y:y1,z:z1}=sgp4(satTLE,tcaMins+0.1);
-  const satPosNext=new THREE.Vector3(x1*S_SCALE,z1*S_SCALE,-y1*S_SCALE);
+  const satPosNext=getSatPosition(satTLE,tcaMins+0.1);
   const velocity=satPosNext.clone().sub(satPosTCA).normalize();
   const orbitNormal=satPosTCA.clone().cross(velocity).normalize();
-  const CAM_DISTANCE=0.15;
-  const camPos=satPosTCA.clone().add(orbitNormal.clone().multiplyScalar(CAM_DISTANCE));
-  cameras.conjunction.position.copy(camPos);cameras.conjunction.up.copy(velocity);
+  const isGEO=satTLE.tip==='GEO';
+  const satDistance=satPosTCA.length();
+  if(isGEO){
+    const camPos=satPosTCA.clone().multiplyScalar(1.4);
+    camPos.add(orbitNormal.clone().multiplyScalar(satDistance*0.15));
+    cameras.conjunction.position.copy(camPos);
+    cameras.conjunction.up.set(0,1,0);
+  }else{
+    const camPos=satPosTCA.clone().add(orbitNormal.clone().multiplyScalar(satDistance*6.0));
+    cameras.conjunction.position.copy(camPos);
+    cameras.conjunction.up.copy(satPosTCA).normalize();
+  }
   ctrls.conjunction.target.copy(satPosTCA);ctrls.conjunction.update();
   document.querySelectorAll('.conj-card').forEach((el,i)=>{
     el.style.borderLeft=(i===index)?`4px solid ${color===0xff3d50?'var(--red)':(color===0xff6428?'var(--orange)':'var(--yellow)')}`:'1px solid transparent';
     el.style.backgroundColor=(i===index)?'rgba(32,128,255,0.1)':'rgba(0,0,0,0.5)';
   });
+  // HUD init
+  const hudSat=document.getElementById('hud-sat');const hudDeb=document.getElementById('hud-debris');
+  const hudVel=document.getElementById('hud-vel');const hudMiss=document.getElementById('hud-miss');
+  const hudNow=document.getElementById('hud-now');const hudTimer=document.getElementById('hud-timer');
+  if(hudSat)hudSat.textContent=currentConjunction.sat;
+  if(hudDeb)hudDeb.textContent='NORAD '+currentConjunction.debris;
+  if(hudVel)hudVel.textContent=currentConjunction.vel.toFixed(1)+' km/s';
+  if(hudMiss){hudMiss.textContent=currentConjunction.dist.toFixed(3)+' km';hudMiss.style.color=currentConjunction.tier==='RED'?'#ff3d50':currentConjunction.tier==='ORANGE'?'#ff6428':'#ffcc00';}
+  if(hudNow)hudNow.textContent=currentConjunction.dist.toFixed(3)+' km';
+  if(hudTimer)hudTimer.textContent='—';
+  // traj-hud sidebar
+  const trajVel=document.getElementById('traj-vel');const trajPc=document.getElementById('traj-pc-live');
+  if(trajVel)trajVel.textContent=currentConjunction.vel.toFixed(1)+' km/s';
+  if(trajPc)trajPc.textContent=currentConjunction.pc.toExponential(2);
+  const trajHud=document.getElementById('traj-hud');if(trajHud)trajHud.classList.add('visible');
   if(activeTab!=='conjunction')switchTab('conjunction');
 }
 function buildConjunctionList(){
@@ -926,7 +1028,7 @@ function buildSatList(){
     const al=ALERTS.filter(a=>a.sat===sat.isim).sort((a,b)=>({RED:0,ORANGE:1,YELLOW:2,GREEN:3}[a.tier]-{RED:0,ORANGE:1,YELLOW:2,GREEN:3}[b.tier]))[0];
     const tier=al?al.tier:'GREEN';
     const tierTR={RED:'KRİTİK',ORANGE:'TURUNCU',YELLOW:'SARI',GREEN:'YEŞİL'};
-    return`<div class="sat-item"><div class="sat-ico ${sat.tip.toLowerCase()}">${sat.tip}</div><div class="sat-info"><div class="sat-name">${sat.isim}</div><div class="sat-meta"><span>NORAD ${sat.norad}</span><span>${sat.irtifa.toLocaleString('tr')} km</span><span>${sat.tip==='GEO'?'Jeostasyoner':'Alçak Yörünge'}</span></div></div><div class="sat-risk"><div class="risk-badge r-${tier}">${tierTR[tier]}</div></div></div>`;
+    return`<div class="sat-item" onclick="focusOnSat('${sat.isim}')" style="cursor:pointer;" title="Uyduya odaklan"><div class="sat-ico ${sat.tip.toLowerCase()}">${sat.tip}</div><div class="sat-info"><div class="sat-name">${sat.isim}</div><div class="sat-meta"><span>NORAD ${sat.norad}</span><span>${sat.irtifa.toLocaleString('tr')} km</span><span>${sat.tip==='GEO'?'Jeostasyoner':'Alçak Yörünge'}</span></div></div><div class="sat-risk"><div class="risk-badge r-${tier}">${tierTR[tier]}</div></div></div>`;
   }).join('');
 }
 function buildAlertList(){
@@ -1132,163 +1234,16 @@ window.closeSHAP = function() {
   document.getElementById('shap-overlay').classList.remove('visible');
 };
 
-// =============================================
-// TRAJECTORY ANIMATION SYSTEM
-// =============================================
-
-let _trajHudInjected = false;
-
-function ensureTrajHUD() {
-  if (_trajHudInjected) return;
-  const stage = document.getElementById('center-stage');
-  if (!stage) return;
-  const hud = document.getElementById('traj-hud');
-  const flash = document.getElementById('impact-flash');
-  const ring = document.getElementById('approach-ring');
-  if (hud && !stage.contains(hud)) { stage.appendChild(hud); }
-  if (flash && !stage.contains(flash)) { stage.appendChild(flash); }
-  if (ring && !stage.contains(ring)) { stage.appendChild(ring); }
-  _trajHudInjected = true;
-}
-
-// Phase tracking
-const PHASE = { APPROACH: 'APPROACH', TCA: 'TCA', RECEDE: 'RECEDE' };
-let _currentPhase = null;
-let _peakReached = false;
-let _impactFired = false;
-
-function setTrajPhase(phase) {
-  if (_currentPhase === phase) return;
-  _currentPhase = phase;
-
-  const badge  = document.getElementById('traj-phase-badge');
-  const labels = { APPROACH: 'YAKLAŞIM', TCA: 'TCA NOKTASI', RECEDE: 'UZAKLAŞIYOR' };
-  const classes = { APPROACH: 'phase-approach', TCA: 'phase-tca', RECEDE: 'phase-recede' };
-  if (!badge) return;
-
-  badge.textContent = labels[phase];
-  badge.className   = 'conj-phase-badge ' + classes[phase];
-}
-
+// Impact flash (DOM overlay, fires at TCA)
+window._impactFired = false;
 function triggerImpactFlash() {
-  if (_impactFired) return;
-  _impactFired = true;
-
+  if (window._impactFired) return;
+  window._impactFired = true;
   const flash = document.getElementById('impact-flash');
   if (!flash) return;
-  flash.style.display = 'block';
-  flash.style.opacity = '1';
-  setTimeout(() => {
-    flash.style.transition = 'opacity 0.7s ease';
-    flash.style.opacity = '0';
-  }, 80);
-  setTimeout(() => {
-    flash.style.display = 'none';
-    flash.style.transition = '';
-    flash.style.opacity = '1';
-  }, 800);
-}
-
-function showApproachRing(show) {
-  const ring = document.getElementById('approach-ring');
-  if (!ring) return;
-  if (show) {
-    ring.style.display = 'block';
-    ring.style.opacity = '1';
-  } else {
-    ring.style.opacity = '0';
-    setTimeout(() => { ring.style.display = 'none'; }, 500);
-  }
-}
-
-// Override the existing conjunction play to add HUD
-const _originalPlayConj = window.playConjunction;
-window.playConjunction = function(index) {
-  ensureTrajHUD();
-
-  const conj = window.CONJUNCTION_DATA ? window.CONJUNCTION_DATA[index] : null;
-  if (conj) {
-    // Cache for SHAP
-    window._ALERTS_CACHE = window._ALERTS_CACHE || [];
-    window._ALERTS_CACHE[index] = conj;
-
-    document.getElementById('traj-vel').textContent = conj.vel.toFixed(1) + ' km/s';
-    document.getElementById('traj-pc-live').textContent = conj.pc.toExponential(2);
-  }
-
-  _peakReached = false;
-  _impactFired = false;
-  _currentPhase = null;
-  document.getElementById('traj-hud').classList.add('visible');
-  showApproachRing(false);
-
-  if (_originalPlayConj) _originalPlayConj(index);
-
-  // Start monitoring loop
-  _startTrajMonitor(conj);
-};
-
-function _startTrajMonitor(conj) {
-  const distEl   = document.getElementById('conj-dist');
-  const timerEl  = document.getElementById('conj-timer');
-  const hudDist  = document.getElementById('traj-dist');
-  const timeBadge= document.getElementById('traj-time-badge');
-  const apFill   = document.getElementById('approach-fill');
-
-  if (!distEl) return;
-
-  let lastDist = Infinity;
-
-  function monitor() {
-    const distText = distEl.textContent;
-    const dist = parseFloat(distText);
-    const timerText = timerEl ? timerEl.textContent : '';
-    const stopped = timerText.includes('DURDU');
-
-    if (!isNaN(dist)) {
-      hudDist.textContent = dist.toFixed(3) + ' km';
-      const tierColor = dist < 0.15 ? '#ff3d50' : dist < 0.5 ? '#ff6428' : '#ffcc00';
-      hudDist.style.color = tierColor;
-
-      // Approach bar: 0 = far, 100% = at min distance
-      const maxDist = conj ? conj.dist * 3 : 2;
-      const progress = Math.max(0, Math.min(100, (1 - dist / maxDist) * 100));
-      apFill.style.width = progress + '%';
-      apFill.style.background = tierColor;
-
-      // Phase logic
-      if (!_peakReached && dist < lastDist) {
-        setTrajPhase(PHASE.APPROACH);
-        if (dist < (conj ? conj.dist * 1.5 : 0.3)) {
-          showApproachRing(true);
-        }
-      } else if (!_peakReached && dist >= lastDist && lastDist < (conj ? conj.dist * 2 : 0.5)) {
-        _peakReached = true;
-        setTrajPhase(PHASE.TCA);
-        triggerImpactFlash();
-        showApproachRing(false);
-        setTimeout(() => setTrajPhase(PHASE.RECEDE), 1200);
-      }
-      lastDist = dist;
-    }
-
-    if (timerText) {
-      const t = parseFloat(timerText);
-      if (!isNaN(t)) timeBadge.textContent = `T${t >= 0 ? '+' : ''}${t.toFixed(1)}s`;
-    }
-
-    if (!stopped) {
-      requestAnimationFrame(monitor);
-    } else {
-      setTrajPhase(PHASE.RECEDE);
-      showApproachRing(false);
-      setTimeout(() => {
-        document.getElementById('traj-hud').classList.remove('visible');
-      }, 3000);
-    }
-  }
-
-  requestAnimationFrame(monitor);
+  flash.style.display = 'block'; flash.style.opacity = '1';
+  setTimeout(() => { flash.style.transition = 'opacity 0.7s ease'; flash.style.opacity = '0'; }, 80);
+  setTimeout(() => { flash.style.display = 'none'; flash.style.transition = ''; flash.style.opacity = '1'; window._impactFired = false; }, 800);
 }
 
 // =============================================

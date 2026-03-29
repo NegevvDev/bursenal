@@ -53,3 +53,8 @@ Thumbs.db
 
 # ── Claude Code (local) ──────────────────────────────────────────────────────
 .claude/
+
+# ── Geçici / test dosyaları ───────────────────────────────────────────────────
+sonsitext.html
+deneme2.html
+sonsitext1.text.txt
