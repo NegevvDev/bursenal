@@ -1033,14 +1033,19 @@ function buildSHAPBars(vals) {
 
 function buildInterpretation(alert, vals) {
   const top2 = vals.slice(0, 2);
+  const maxAbs = Math.max(...vals.map(v => v.absContrib), 0.001);
+  const top1Pct = (top2[0].absContrib / maxAbs * 100).toFixed(0);
+  const top2Pct = top2[1] ? (top2[1].absContrib / maxAbs * 100).toFixed(0) : null;
   const tierMap = { RED: 'KRİTİK (kırmızı)', ORANGE: 'TURUNCU', YELLOW: 'SARI' };
-  return `Bu kavuşum <strong style="color:#ddeeff">${tierMap[alert.tier]}</strong> olarak sınıflandırıldı. 
-  En güçlü katkı <strong style="color:#ddeeff">"${top2[0].name}"</strong> özelliğinden geliyor 
-  (SHAP ağırlığı <strong style="color:#ffcc00">${(top2[0].absContrib * 100).toFixed(1)}%</strong>). 
-  ${alert.dist < 0.2 ? `${alert.dist.toFixed(3)} km\'lik kaçış mesafesi eşik değerinin (0.2 km) altında — bu tek başına uyarı tetikliyor.` 
-    : `Kaçış mesafesi (${alert.dist.toFixed(3)} km) ile göreceli hız (${alert.vel.toFixed(1)} km/s) birlikte değerlendirildi.`}
-  LSTM modeli bu yaklaşım sekansını geçmiş ${Math.floor(Math.random()*12)+4} benzer olayla karşılaştırarak 
-  <strong style="color:#ddeeff">%${(alert.ml * 100).toFixed(0)}</strong> güven skoru atadı.`;
+  const pcStr = (alert.pc && alert.pc > 0) ? alert.pc.toExponential(2) : '< 10⁻⁹';
+  return `Bu kavuşum <strong style="color:#ddeeff">${tierMap[alert.tier] || alert.tier}</strong> olarak sınıflandırıldı.
+  En güçlü katkı <strong style="color:#ddeeff">"${top2[0].name}"</strong> özelliğinden geliyor
+  (göreli ağırlık: <strong style="color:#ffcc00">%${top1Pct}</strong>)${top2[1] ? `, ardından <strong style="color:#ddeeff">"${top2[1].name}"</strong> (%${top2Pct})` : ''}.
+  ${alert.dist < 0.2
+    ? `${alert.dist.toFixed(3)} km\'lik kaçış mesafesi kritik eşiğin (0.2 km) altında — bu tek başına uyarı tetikliyor.`
+    : `Kaçış mesafesi <strong style="color:#ddeeff">${alert.dist.toFixed(3)} km</strong>, göreceli hız <strong style="color:#ddeeff">${alert.vel.toFixed(1)} km/s</strong>.`}
+  Analitik Pc: <strong style="color:#ff6428">${pcStr}</strong> &nbsp;·&nbsp;
+  Ensemble ML skoru: <strong style="color:#ddeeff">%${(alert.ml * 100).toFixed(0)}</strong>.`;
 }
 
 window.openSHAP = function(alertIndex) {
@@ -1049,7 +1054,7 @@ window.openSHAP = function(alertIndex) {
 
   document.getElementById('shap-title').textContent = `${alert.sat} × NORAD ${alert.debris} — ML KARAR`;
   document.getElementById('shap-ml').textContent = (alert.ml * 100).toFixed(0) + '%';
-  document.getElementById('shap-pc').textContent = alert.pc.toExponential(2);
+  document.getElementById('shap-pc').textContent = (alert.pc && alert.pc > 0) ? alert.pc.toExponential(2) : '< 10⁻⁹';
 
   const tierTR = { RED: '🔴 KRİTİK', ORANGE: '🟠 TURUNCU', YELLOW: '🟡 SARI' };
   const tierColor = { RED: '#ff3d50', ORANGE: '#ff6428', YELLOW: '#ffcc00' };
@@ -1432,22 +1437,58 @@ async function _pollPipeline() {
   }
 }
 
+// Türkçe feature label çevirisi
+const _FEAT_TR = {
+  'log10_pc_analytic':        'log₁₀(Çarpışma Olasılığı)',
+  'miss_distance_km':         'Kaçış Mesafesi (km)',
+  'relative_velocity_km_s':   'Göreceli Hız (km/s)',
+  'primary_sma_km':           'Ana Yörünge Yarıçapı (km)',
+  'secondary_sma_km':         'Enkaz Yörünge Yarıçapı (km)',
+  'tca_urgency':              'TCA Aciliyeti',
+  'velocity_miss_product':    'Hız × Mesafe Çarpımı',
+  'orbital_similarity_score': 'Yörünge Benzerlik Skoru',
+  'radial_miss_km':           'Radyal Kaçış (km)',
+  'intrack_miss_km':          'Yörünge İzi Kaçış (km)',
+  'crosstrack_miss_km':       'Çapraz Kaçış (km)',
+  'delta_inclination_deg':    'Eğim Farkı (°)',
+  'delta_sma_km':             'Yarıçap Farkı (km)',
+  'primary_raan_deg':         'Ana RAAN (°)',
+  'secondary_raan_deg':       'Enkaz RAAN (°)',
+  'encounter_energy':         'Karşılaşma Enerjisi (kJ/kg)',
+  'orbital_altitude_difference': 'İrtifa Farkı (km)',
+  'primary_eccentricity':     'Ana Yörünge Eksantrikliği',
+  'secondary_eccentricity':   'Enkaz Eksantrikliği',
+  'time_to_tca_hours':        'TCA\'ya Kalan Süre (saat)',
+  // API'deki kısa İngilizce labellar için de eşleştir
+  'miss distance':            'Kaçış Mesafesi (km)',
+  'relative velocity':        'Göreceli Hız (km/s)',
+  'encounter energy':         'Karşılaşma Enerjisi',
+  'orbital altitude difference': 'İrtifa Farkı (km)',
+  'collision probability':    'Çarpışma Olasılığı (log)',
+  'tca urgency':              'TCA Aciliyeti',
+  'orbital similarity':       'Yörünge Benzerliği',
+};
+
 // Patch computeSHAPValues — real SHAP data varsa API'den al
 const _origComputeSHAP = computeSHAPValues;
 window.computeSHAPValues = function(alert) {
   if (alert.shap_features && alert.shap_features.length >= 3) {
     const maxAbs = Math.max(...alert.shap_features.map(f => Math.abs(f.shap_value || 0)), 0.001);
     return alert.shap_features
-      .map(f => ({
-        name:        f.label || f.feature,
-        key:         f.feature,
-        direction:   (f.shap_value || 0) >= 0 ? 'pos' : 'neg',
-        weight:      Math.abs(f.shap_value || 0) / maxAbs,
-        desc:        f.feature,
-        value:       Math.abs(f.shap_value || 0) / maxAbs,
-        contribution: f.shap_value || 0,
-        absContrib:  Math.abs(f.shap_value || 0),
-      }))
+      .map(f => {
+        const rawLabel = f.label || f.feature || '';
+        const trLabel  = _FEAT_TR[rawLabel] || _FEAT_TR[f.feature] || rawLabel;
+        return {
+          name:         trLabel,
+          key:          f.feature,
+          direction:    (f.shap_value || 0) >= 0 ? 'pos' : 'neg',
+          weight:       Math.abs(f.shap_value || 0) / maxAbs,
+          desc:         trLabel,
+          value:        Math.abs(f.shap_value || 0) / maxAbs,
+          contribution: f.shap_value || 0,
+          absContrib:   Math.abs(f.shap_value || 0),
+        };
+      })
       .sort((a, b) => b.absContrib - a.absContrib);
   }
   return _origComputeSHAP(alert);
