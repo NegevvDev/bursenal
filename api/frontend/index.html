@@ -745,7 +745,7 @@ function applyFilters(tex){if(!tex)return;tex.anisotropy=renderer.capabilities.g
       earthMain.rotation.y=window.GLOBAL_EARTH_ROT;
       cloudsMain.rotation.y=window.GLOBAL_EARTH_ROT+(window.GLOBAL_SIM_MINUTES*0.0001);
       sunLight.position.set(sunX,sunY,sunZ);
-      const GEO_POSITIONS={39522:{lon:42*Math.PI/180,lat:0.001},40985:{lon:50*Math.PI/180,lat:0.001},47790:{lon:31*Math.PI/180,lat:0.001},49077:{lon:42*Math.PI/180,lat:-0.002}};
+      const GEO_POSITIONS={39522:{lon:42*Math.PI/180,lat:0.008},40985:{lon:50*Math.PI/180,lat:0.001},47790:{lon:31*Math.PI/180,lat:0.001},49077:{lon:42*Math.PI/180,lat:-0.008}};
       let html='';
       satMeshes.forEach(({grp,sat})=>{
         if(sat.tip!=='LEO'&&GEO_POSITIONS[sat.norad]){
@@ -879,7 +879,7 @@ function buildConjunctionList(){
   window.CONJUNCTION_DATA.forEach((a,index)=>{
     const title=a.tier==='RED'?'🔴 KRİTİK':(a.tier==='ORANGE'?'🟠 YÜKSEK':'🟡 ORTA');
     html+=`<div class="conj-card" style="border:1px solid ${tC[a.tier]};padding:12px;margin-bottom:10px;border-radius:8px;cursor:pointer;background:rgba(0,0,0,0.5);transition:0.2s;" onclick="playConjunction(${index})" onmouseover="this.style.background='rgba(255,255,255,0.05)'" onmouseout="if(currentConjunction!==window.CONJUNCTION_DATA[${index}])this.style.background='rgba(0,0,0,0.5)'">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;"><span style="color:${tC[a.tier]};font-family:'Space Mono';font-weight:700;font-size:11px;">${title}</span><span style="font-family:'Space Mono';font-size:9px;color:var(--muted);">TCA: +${a.tca_h.toFixed(1)}s</span></div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;"><span style="color:${tC[a.tier]};font-family:'Space Mono';font-weight:700;font-size:11px;">${title}</span><span style="font-family:'Space Mono';font-size:9px;color:var(--muted);">${a.tca_str || (a.tca_h >= 0 ? 'T-'+a.tca_h.toFixed(1)+'h' : 'TCA geçti')}</span></div>
       <div style="font-size:13px;font-weight:bold;color:var(--text);margin-bottom:4px;">${a.sat} <span style="color:var(--muted);font-weight:normal;font-size:11px;">vs</span> NORAD ${a.debris}</div>
       <div style="display:flex;gap:10px;font-family:'Space Mono';font-size:9px;color:var(--dim);"><span>Mes: ${a.dist.toFixed(3)}km</span><span>Hız: ${a.vel.toFixed(1)}km/s</span></div>
     </div>`;
@@ -937,7 +937,11 @@ function buildScatter(){
   window._sc=new Chart(ctx,{type:'scatter',data:{datasets:ds},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{backgroundColor:'#07111e',borderColor:'rgba(80,160,255,.3)',borderWidth:1,titleColor:'#ddeeff',bodyColor:'#6a96bc',padding:10,titleFont:{family:'Space Mono',size:11},bodyFont:{family:'Space Mono',size:10},callbacks:{title:ctx=>ctx[0].raw.raw.sat+' × '+ctx[0].raw.raw.debris,label:ctx=>{const d=ctx.raw.raw;return['Pc: '+d.pc.toExponential(2),'Mesafe: '+d.dist.toFixed(3)+' km','ML: '+(d.ml*100).toFixed(0)+'%']}}}},scales:{x:{title:{display:true,text:'log₁₀(Çarpışma Olasılığı)',color:'#6a96bc',font:{family:'Space Mono',size:10}},grid:{color:'rgba(80,160,255,.07)'},ticks:{color:'#2d5070',font:{family:'Space Mono',size:10},callback:v=>'10^'+v}},y:{title:{display:true,text:'Kaçış Mesafesi (km)',color:'#6a96bc',font:{family:'Space Mono',size:10}},grid:{color:'rgba(80,160,255,.07)'},ticks:{color:'#2d5070',font:{family:'Space Mono',size:10}}}}}});
 }
 function buildTimeline(){
-  document.getElementById('timeline').innerHTML=[...ALERTS].filter(a=>a.tier!=='GREEN').sort((a,b)=>a.tca_h-b.tca_h).slice(0,10).map(a=>`<div class="tl-row"><div class="tl-lbl">${a.sat.replace('Türksat ','TS')}</div><div class="tl-track"><div class="tl-fill ${a.tier}" style="width:${(a.tca_h/72*100).toFixed(1)}%">${a.tca_h>10?'NORAD '+a.debris:''}</div></div><div class="tl-h">+${a.tca_h.toFixed(0)}s</div></div>`).join('');
+  document.getElementById('timeline').innerHTML=[...ALERTS].filter(a=>a.tier!=='GREEN').sort((a,b)=>Math.abs(a.tca_h)-Math.abs(b.tca_h)).slice(0,10).map(a=>{
+    const absTca=Math.abs(a.tca_h);const w=Math.min(100,(absTca/72*100)).toFixed(1);
+    const lbl=a.tca_str||(a.tca_h>=0?'+'+a.tca_h.toFixed(1)+'h':'geçti');
+    return`<div class="tl-row"><div class="tl-lbl">${a.sat.replace('Türksat ','TS')}</div><div class="tl-track"><div class="tl-fill ${a.tier}" style="width:${w}%">${absTca>8?'NORAD '+a.debris:''}</div></div><div class="tl-h" style="font-size:8px">${lbl}</div></div>`;
+  }).join('');
 }
 function showTip(e,sat,saat,pct){
   const tt=document.getElementById('tooltip');
@@ -1286,10 +1290,10 @@ function buildAlertListEnhanced() {
       <div class="alert-body">
         <div class="alert-title">${a.sat} × NORAD ${a.debris}</div>
         <div class="alert-stats">
-          <span>⏱ +${a.tca_h.toFixed(1)}s</span>
+          <span>⏱ ${a.tca_str || (a.tca_h > 0 ? '+' + a.tca_h.toFixed(1) + 'h' : 'geçti')}</span>
           <span>📏 ${a.dist.toFixed(3)} km</span>
           <span>⚡ ${a.vel.toFixed(1)} km/s</span>
-          <span>🤖 ${(a.ml * 100).toFixed(0)}%</span>
+          <span>🤖 ${a.ml.toFixed(2)}</span>
         </div>
         <div class="shap-hint">🔍 SHAP analizi için tıkla</div>
       </div>
@@ -1353,8 +1357,9 @@ function _apiMapAlerts(events) {
       dist:           ev.miss_distance_km || 0,
       vel:            ev.relative_velocity_km_s || 0,
       ml:             ev.ml_score || 0,
-      tca_h:          ev.tca_utc ? Math.max(0, (new Date(ev.tca_utc) - now) / 3600000)
+      tca_h:          ev.tca_utc ? (new Date(ev.tca_utc) - now) / 3600000
                                  : (ev.tca_hours_from_now || 0),
+      tca_str:        ev.tca_utc ? new Date(ev.tca_utc).toLocaleString('tr-TR', {month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}) : '—',
       pc:             ev.pc_analytic || 0,
       tip:            _GEO_NORADS.has(ev.turkish_norad_id) ? 'GEO' : 'LEO',
       shap_features:  ev.top_shap_features || [],
@@ -1369,8 +1374,10 @@ window.fetchScores = async function() {
     const events = data.scored_conjunctions || [];
     if (!events.length) return false;
     ALERTS = _apiMapAlerts(events);
+    const tc = data.tier_counts || {};
+    const totalTracked = (tc.RED||0) + (tc.ORANGE||0) + (tc.YELLOW||0) + (tc.GREEN||0);
     const el = document.getElementById('m-tracked');
-    if (el) el.textContent = events.length;
+    if (el) el.textContent = (totalTracked || events.length).toLocaleString('tr');
     if (typeof renderAll === 'function') renderAll();
     return true;
   } catch(e) { console.warn('[API] fetchScores:', e); return false; }
