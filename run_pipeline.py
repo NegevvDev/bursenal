@@ -15,9 +15,11 @@ import time
 from datetime import datetime
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-PYTHON = os.path.join(ROOT, '.venv', 'Scripts', 'python.exe')
+PYTHON = os.path.join(ROOT, '.venv', 'Scripts', 'python.exe')  # Windows
 if not os.path.exists(PYTHON):
-    PYTHON = sys.executable  # fallback: sistem Python
+    PYTHON = os.path.join(ROOT, '.venv', 'bin', 'python')  # Linux
+if not os.path.exists(PYTHON):
+    PYTHON = sys.executable  # fallback
 
 STEPS = [
     (1, "TLE Fetch",          "agents/tle-ingestion-agent/scripts/fetch_tles.py"),
