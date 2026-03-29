@@ -8,10 +8,11 @@ agents/*/outputs/*.md
 agents/*/outputs/*.parquet
 
 # ── ML model artifacts ───────────────────────────────────────────────────────
-agents/ml-scoring-agent/data/models/*.pkl
-agents/ml-scoring-agent/data/models/*.h5
-agents/ml-scoring-agent/data/models/*.json
 agents/ml-scoring-agent/data/models/archive/
+# Model files tracked (needed for VPS deployment)
+!agents/ml-scoring-agent/data/models/*.pkl
+!agents/ml-scoring-agent/data/models/*.h5
+!agents/ml-scoring-agent/data/models/*.json
 
 # ── Training data (büyük dosyalar) ───────────────────────────────────────────
 agents/ml-scoring-agent/data/imports/training-data/*.parquet
