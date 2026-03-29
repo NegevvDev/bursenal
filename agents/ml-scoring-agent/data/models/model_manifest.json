@@ -1,0 +1,11 @@
+{
+  "version": "v1.0-2026-03-28",
+  "status": "approved",
+  "test_auc_roc": 0.9235110327329387,
+  "xgb_available": true,
+  "lstm_included": false,
+  "feature_count": 21,
+  "n_train": 4347,
+  "n_test": 1087,
+  "approved_at": "2026-03-28T23:20:37.965953"
+}

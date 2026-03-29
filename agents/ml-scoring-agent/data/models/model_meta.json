@@ -1,0 +1,73 @@
+{
+  "feature_keys": [
+    "miss_distance_km",
+    "relative_velocity_km_s",
+    "radial_miss_km",
+    "intrack_miss_km",
+    "crosstrack_miss_km",
+    "tca_hours_from_now",
+    "log10_pc_analytic",
+    "primary_sma_km",
+    "primary_eccentricity",
+    "primary_inclination_deg",
+    "primary_raan_deg",
+    "secondary_sma_km",
+    "secondary_eccentricity",
+    "secondary_inclination_deg",
+    "secondary_raan_deg",
+    "object_type_encoded",
+    "tca_urgency",
+    "velocity_miss_product",
+    "delta_inclination_deg",
+    "delta_sma_km",
+    "orbital_similarity_score"
+  ],
+  "n_train": 4347,
+  "n_test": 1087,
+  "xgb_available": true,
+  "rf_auc": 0.9104164898076391,
+  "xgb_auc": 0.9235110327329387,
+  "feature_importance": [
+    [
+      "miss_distance_km",
+      0.5901045369915149
+    ],
+    [
+      "velocity_miss_product",
+      0.1123337092717456
+    ],
+    [
+      "radial_miss_km",
+      0.043200487852542276
+    ],
+    [
+      "intrack_miss_km",
+      0.040457495034514845
+    ],
+    [
+      "crosstrack_miss_km",
+      0.03390623468874566
+    ],
+    [
+      "secondary_inclination_deg",
+      0.022769801486457908
+    ],
+    [
+      "delta_sma_km",
+      0.02026683780091324
+    ],
+    [
+      "relative_velocity_km_s",
+      0.019606397707140275
+    ],
+    [
+      "delta_inclination_deg",
+      0.013855514141455439
+    ],
+    [
+      "primary_sma_km",
+      0.01246529611416304
+    ]
+  ],
+  "trained_at": "2026-03-28T23:20:37.965602"
+}
