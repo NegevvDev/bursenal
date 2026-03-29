@@ -1480,7 +1480,7 @@ const _FEAT_TR = {
 const _origComputeSHAP = computeSHAPValues;
 window.computeSHAPValues = function(alert) {
   if (alert.shap_features && alert.shap_features.length >= 3) {
-    const maxAbs = Math.max(...alert.shap_features.map(f => Math.abs(f.shap_value || 0)), 0.001);
+    const maxAbs = Math.max(...alert.shap_features.map(f => Math.abs(f.shap || 0)), 0.001);
     return alert.shap_features
       .map(f => {
         const rawLabel = f.label || f.feature || '';
@@ -1488,12 +1488,12 @@ window.computeSHAPValues = function(alert) {
         return {
           name:         trLabel,
           key:          f.feature,
-          direction:    (f.shap_value || 0) >= 0 ? 'pos' : 'neg',
-          weight:       Math.abs(f.shap_value || 0) / maxAbs,
+          direction:    (f.shap || 0) >= 0 ? 'pos' : 'neg',
+          weight:       Math.abs(f.shap || 0) / maxAbs,
           desc:         trLabel,
-          value:        Math.abs(f.shap_value || 0) / maxAbs,
-          contribution: f.shap_value || 0,
-          absContrib:   Math.abs(f.shap_value || 0),
+          value:        Math.abs(f.shap || 0) / maxAbs,
+          contribution: f.shap || 0,
+          absContrib:   Math.abs(f.shap || 0),
         };
       })
       .sort((a, b) => b.absContrib - a.absContrib);
