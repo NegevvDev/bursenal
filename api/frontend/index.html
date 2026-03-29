@@ -438,6 +438,34 @@ nav{display:flex;align-items:center;justify-content:space-between;padding:14px 2
       </div>
       <button onclick="fetchScores()" title="API'den son verileri yenile" style="font-family:'Space Mono',monospace;font-size:11px;font-weight:700;color:#60aaff;background:rgba(96,170,255,0.08);border:1px solid rgba(96,170,255,0.3);border-radius:8px;padding:8px 14px;cursor:pointer;transition:all 0.2s;white-space:nowrap;">↻ Yenile</button>
     </div>
+    <!-- Pipeline Log Panel -->
+    <div id="pipeline-log-section" style="display:none;margin:12px;background:#020a14;border:1px solid var(--borderB);border-radius:8px;overflow:hidden;">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;border-bottom:1px solid var(--border);background:rgba(3,8,15,0.6);">
+        <span style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);letter-spacing:.5px;">⚙ PIPELINE LOG</span>
+        <button onclick="document.getElementById('pipeline-log-section').style.display='none'" style="background:none;border:none;color:var(--dim);cursor:pointer;font-size:13px;line-height:1;">✕</button>
+      </div>
+      <pre id="pipeline-log-content" style="font-family:'Space Mono',monospace;font-size:9px;color:#6a96bc;padding:10px 12px;max-height:180px;overflow-y:auto;white-space:pre-wrap;word-break:break-all;margin:0;"></pre>
+    </div>
+    <!-- Model Info Bar -->
+    <div class="sec-head"><span class="sec-title">Model &amp; Veri Durumu</span><span class="sec-badge" id="model-lstm-badge" style="color:var(--muted)">LSTM —</span></div>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--border)">
+      <div style="background:var(--surf);padding:10px 14px">
+        <div style="font-size:9px;color:var(--muted);font-family:'Space Mono',monospace;text-transform:uppercase;letter-spacing:.4px;margin-bottom:4px">Versiyon</div>
+        <div style="font-family:'Space Mono',monospace;font-size:13px;font-weight:700;color:var(--text)" id="model-ver">—</div>
+      </div>
+      <div style="background:var(--surf);padding:10px 14px">
+        <div style="font-size:9px;color:var(--muted);font-family:'Space Mono',monospace;text-transform:uppercase;letter-spacing:.4px;margin-bottom:4px">AUC-ROC</div>
+        <div style="font-family:'Space Mono',monospace;font-size:13px;font-weight:700;color:var(--accent)" id="model-auc">—</div>
+      </div>
+      <div style="background:var(--surf);padding:10px 14px">
+        <div style="font-size:9px;color:var(--muted);font-family:'Space Mono',monospace;text-transform:uppercase;letter-spacing:.4px;margin-bottom:4px">Son Eğitim</div>
+        <div style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted)" id="model-trained">—</div>
+      </div>
+    </div>
+    <div style="padding:7px 14px;background:var(--surf);border-bottom:1px solid var(--border);font-family:'Space Mono',monospace;font-size:9px;color:var(--dim);display:flex;justify-content:space-between;">
+      <span>Son Skorlama: <span id="scored-at-lbl" style="color:var(--muted)">—</span></span>
+      <span id="scored-event-count" style="color:var(--dim)"></span>
+    </div>
     <div class="sec-head"><span class="sec-title">Risk Isı Haritası — Uydu × Zaman</span>
       <div style="display:flex;align-items:center;gap:6px">
         <div style="width:56px;height:7px;border-radius:3px;background:linear-gradient(to right,#0d2a0d,#1a5a1a,#8a5f00,#d44800,#ff1500)"></div>
@@ -1378,6 +1406,11 @@ window.fetchScores = async function() {
     const totalTracked = (tc.RED||0) + (tc.ORANGE||0) + (tc.YELLOW||0) + (tc.GREEN||0);
     const el = document.getElementById('m-tracked');
     if (el) el.textContent = (totalTracked || events.length).toLocaleString('tr');
+    // scored_at
+    const saEl = document.getElementById('scored-at-lbl');
+    if (saEl && data.scored_at_utc) saEl.textContent = new Date(data.scored_at_utc).toLocaleString('tr-TR');
+    const cntEl = document.getElementById('scored-event-count');
+    if (cntEl) cntEl.textContent = `${ALERTS.length} aktif olay`;
     if (typeof renderAll === 'function') renderAll();
     return true;
   } catch(e) { console.warn('[API] fetchScores:', e); return false; }
@@ -1409,7 +1442,11 @@ window.fetchStatus = async function() {
 
 window.runPipeline = async function() {
   const btn = document.getElementById('run-pipeline-btn');
+  const logSection = document.getElementById('pipeline-log-section');
+  const logContent = document.getElementById('pipeline-log-content');
   if (btn) { btn.disabled = true; btn.textContent = '⏳...'; }
+  if (logSection) { logSection.style.display = 'block'; }
+  if (logContent) { logContent.textContent = 'Pipeline başlatılıyor...\n'; }
   try {
     const r = await fetch('/api/run-pipeline', { method: 'POST' });
     if (!r.ok) {
@@ -1427,6 +1464,16 @@ window.runPipeline = async function() {
 
 async function _pollPipeline() {
   try {
+    // log güncelle
+    const logR = await fetch('/api/pipeline-log');
+    if (logR.ok) {
+      const logData = await logR.json();
+      const logEl = document.getElementById('pipeline-log-content');
+      if (logEl && logData.log && logData.log.length) {
+        logEl.textContent = logData.log.join('\n');
+        logEl.scrollTop = logEl.scrollHeight;
+      }
+    }
     const r = await fetch('/api/status');
     const s = await r.json();
     await window.fetchStatus();
@@ -1437,6 +1484,7 @@ async function _pollPipeline() {
     } else {
       if (btn) { btn.disabled = false; btn.textContent = '▶ Pipeline'; }
       await window.fetchScores();
+      await window.fetchModelInfo();
     }
   } catch(e) {
     const btn = document.getElementById('run-pipeline-btn');
@@ -1501,10 +1549,37 @@ window.computeSHAPValues = function(alert) {
   return _origComputeSHAP(alert);
 };
 
+window.fetchModelInfo = async function() {
+  try {
+    const r = await fetch('/api/model-info');
+    if (!r.ok) return;
+    const data = await r.json();
+    if (data.manifest) {
+      const ver = document.getElementById('model-ver');
+      if (ver) ver.textContent = data.manifest.version || '—';
+      const auc = document.getElementById('model-auc');
+      if (auc) auc.textContent = data.manifest.test_auc_roc ? data.manifest.test_auc_roc.toFixed(4) : '—';
+      const lstmBadge = document.getElementById('model-lstm-badge');
+      if (lstmBadge) {
+        lstmBadge.textContent = data.manifest.lstm_included ? '✓ LSTM' : '✗ LSTM';
+        lstmBadge.style.color = data.manifest.lstm_included ? 'var(--green)' : 'var(--muted)';
+        lstmBadge.style.borderColor = data.manifest.lstm_included ? 'rgba(34,214,110,.3)' : '';
+      }
+    }
+    if (data.meta) {
+      const tr = document.getElementById('model-trained');
+      if (tr) tr.textContent = data.meta.trained_at
+        ? new Date(data.meta.trained_at).toLocaleString('tr-TR')
+        : '—';
+    }
+  } catch(e) { console.warn('[API] fetchModelInfo:', e); }
+};
+
 // Startup: API'den yükle, yoksa hardcoded veri kalır
 (async function apiInit() {
   const ok = await window.fetchScores();
   await window.fetchStatus();
+  await window.fetchModelInfo();
   if (!ok) console.info('[API] /api/latest-scores bulunamadı, demo veri kullanılıyor.');
   setInterval(window.fetchStatus, 5000);
   setInterval(window.fetchScores, 60000);
