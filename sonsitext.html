@@ -431,12 +431,19 @@ nav{display:flex;align-items:center;justify-content:space-between;padding:14px 2
     <div class="sat-list" id="sat-list"></div>
     <div class="sec-head" style="margin-top:4px"><span class="sec-title">Aktif Kavuşum Uyarıları</span><span class="sec-badge red" id="alert-badge">18 olay</span></div>
     <div id="alert-list"></div>
-    <div style="margin:12px;display:flex;gap:8px;align-items:stretch;">
-      <div class="upload-zone" style="flex:1;margin:0;" onclick="document.getElementById('json-up').click()">
-        <p>📂 JSON Yükle</p>
-        <input type="file" id="json-up" accept=".json,.md" onchange="loadJSON(event)">
+    <div style="margin:12px;display:flex;gap:8px;">
+      <button onclick="fetchScores()" style="flex:1;font-family:'Space Mono',monospace;font-size:10px;font-weight:700;color:#60aaff;background:rgba(96,170,255,0.08);border:1px solid rgba(96,170,255,0.3);border-radius:8px;padding:9px;cursor:pointer;transition:all 0.2s;">↻ Verileri Yenile</button>
+      <button onclick="showLatestReport()" style="flex:1;font-family:'Space Mono',monospace;font-size:10px;font-weight:700;color:var(--muted);background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:8px;padding:9px;cursor:pointer;transition:all 0.2s;">📋 Son Rapor</button>
+    </div>
+    <!-- Alerts Report Modal -->
+    <div id="report-overlay" onclick="if(event.target===this)this.style.display='none'" style="display:none;position:fixed;inset:0;z-index:8000;background:rgba(0,0,5,0.82);backdrop-filter:blur(8px);align-items:center;justify-content:center;">
+      <div style="width:min(640px,96vw);max-height:80vh;background:#07111e;border:1px solid var(--borderB);border-radius:14px;overflow:hidden;display:flex;flex-direction:column;">
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 20px;border-bottom:1px solid rgba(80,160,255,0.12);background:rgba(3,8,15,0.6);flex-shrink:0;">
+          <span style="font-family:'Space Mono',monospace;font-size:12px;font-weight:700;color:var(--text)">📋 SON UYARI RAPORU</span>
+          <button onclick="document.getElementById('report-overlay').style.display='none'" style="background:rgba(255,255,255,0.05);border:1px solid rgba(80,160,255,0.2);color:var(--muted);cursor:pointer;width:28px;height:28px;border-radius:50%;font-size:14px;">✕</button>
+        </div>
+        <pre id="report-content" style="margin:0;padding:16px 20px;font-family:'Space Mono',monospace;font-size:10px;color:#6a96bc;overflow-y:auto;white-space:pre-wrap;line-height:1.7;"></pre>
       </div>
-      <button onclick="fetchScores()" title="API'den son verileri yenile" style="font-family:'Space Mono',monospace;font-size:11px;font-weight:700;color:#60aaff;background:rgba(96,170,255,0.08);border:1px solid rgba(96,170,255,0.3);border-radius:8px;padding:8px 14px;cursor:pointer;transition:all 0.2s;white-space:nowrap;">↻ Yenile</button>
     </div>
     <!-- Pipeline Log Panel -->
     <div id="pipeline-log-section" style="display:none;margin:12px;background:#020a14;border:1px solid var(--borderB);border-radius:8px;overflow:hidden;">
@@ -1407,8 +1414,9 @@ window.fetchScores = async function() {
     const el = document.getElementById('m-tracked');
     if (el) el.textContent = (totalTracked || events.length).toLocaleString('tr');
     // scored_at
+    if (data.scored_at_utc) _lastScoredAt = data.scored_at_utc;
     const saEl = document.getElementById('scored-at-lbl');
-    if (saEl && data.scored_at_utc) saEl.textContent = new Date(data.scored_at_utc).toLocaleString('tr-TR');
+    if (saEl && data.scored_at_utc) saEl.textContent = timeAgo(data.scored_at_utc);
     const cntEl = document.getElementById('scored-event-count');
     if (cntEl) cntEl.textContent = `${ALERTS.length} aktif olay`;
     if (typeof renderAll === 'function') renderAll();
@@ -1573,6 +1581,38 @@ window.fetchModelInfo = async function() {
         : '—';
     }
   } catch(e) { console.warn('[API] fetchModelInfo:', e); }
+};
+
+// ── Relative time ─────────────────────────────────────
+let _lastScoredAt = null;
+function timeAgo(dateStr) {
+  if (!dateStr) return '—';
+  const diff = Date.now() - new Date(dateStr);
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1)  return 'az önce';
+  if (mins < 60) return mins + ' dk önce';
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24)  return hrs + ' saat önce';
+  return Math.floor(hrs / 24) + ' gün önce';
+}
+function _refreshRelativeTime() {
+  const el = document.getElementById('scored-at-lbl');
+  if (el && _lastScoredAt) el.textContent = timeAgo(_lastScoredAt);
+}
+setInterval(_refreshRelativeTime, 30000);
+
+// ── Son rapor modal ────────────────────────────────────
+window.showLatestReport = async function() {
+  const overlay = document.getElementById('report-overlay');
+  const content = document.getElementById('report-content');
+  overlay.style.display = 'flex';
+  content.textContent = 'Yükleniyor...';
+  try {
+    const r = await fetch('/api/latest-alerts');
+    if (!r.ok) { content.textContent = 'Rapor bulunamadı.\n\nPipeline çalıştıktan sonra tekrar dene.'; return; }
+    const data = await r.json();
+    content.textContent = data.content || '(boş rapor)';
+  } catch(e) { content.textContent = 'Bağlantı hatası: ' + e.message; }
 };
 
 // Startup: API'den yükle, yoksa hardcoded veri kalır

@@ -17,6 +17,7 @@ agents/ml-scoring-agent/data/models/archive/
 # ── Training data (büyük dosyalar) ───────────────────────────────────────────
 agents/ml-scoring-agent/data/imports/training-data/*.parquet
 agents/ml-scoring-agent/data/imports/training-data/*.npz
+agents/ml-scoring-agent/data/imports/training-data/*.json
 
 # ── CDM dosyaları (runtime) ──────────────────────────────────────────────────
 agents/conjunction-analysis-agent/data/imports/cdm/
